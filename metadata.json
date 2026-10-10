@@ -1,0 +1,6 @@
+{
+  "name": "PINN Arcade",
+  "description": "Solana meme coin gaming ecosystem connected to The Pinnacle Montego Bay ($PINN). Play PINN Coin Rush, climb leaderboards, and join community competitions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
