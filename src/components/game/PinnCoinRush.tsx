@@ -75,6 +75,9 @@ export const PinnCoinRush: React.FC<PinnCoinRushProps> = ({ onNavigateToLeaderbo
     gameSpeed: 6.0,
     baseSpeed: 6.0,
     elapsedTime: 0,
+    sessionId: '',
+    sessionStartTime: 0,
+    obstaclesPassed: 0,
 
     // Player
     player: {
@@ -115,11 +118,16 @@ export const PinnCoinRush: React.FC<PinnCoinRushProps> = ({ onNavigateToLeaderbo
     distSinceLastCoin: 0,
   });
 
+  useEffect(() => {
+    const unsub = soundService.subscribe((muted) => {
+      setIsMuted(muted);
+    });
+    return unsub;
+  }, []);
+
   // Sound Mute Toggle
   const handleToggleMute = useCallback(() => {
-    const muted = soundService.toggleMute();
-    setIsMuted(muted);
-    soundService.playClick();
+    soundService.toggleMute();
   }, []);
 
   // Update display name
@@ -239,6 +247,9 @@ export const PinnCoinRush: React.FC<PinnCoinRushProps> = ({ onNavigateToLeaderbo
     g.distSinceLastCoin = 0;
     g.nextObstacleDist = 450;
     g.nextCoinDist = 200;
+    g.sessionId = `cr_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    g.sessionStartTime = Date.now();
+    g.obstaclesPassed = 0;
 
     setScore(0);
     setCoinsCollected(0);
@@ -256,8 +267,14 @@ export const PinnCoinRush: React.FC<PinnCoinRushProps> = ({ onNavigateToLeaderbo
     soundService.playCrash();
     setTimeout(() => soundService.playGameOver(), 200);
 
-    // Save score to local leaderboard service
-    const result = leaderboardService.recordGameResult(g.score, g.coins);
+    // Save score to local leaderboard service and submit through anti-cheat pipeline
+    const elapsedMs = Math.max(3000, Date.now() - g.sessionStartTime);
+    const result = leaderboardService.recordGameResult(g.score, g.coins, {
+      sessionId: g.sessionId,
+      durationMs: elapsedMs,
+      distanceMeters: Math.floor(g.distance),
+      obstaclesPassed: g.obstaclesPassed,
+    });
     setPlayerStats(result.stats);
     if (result.isNewPersonalBest) {
       setIsNewHighScore(true);

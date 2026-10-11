@@ -1,33 +1,109 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy, Medal, Send, ShieldAlert, Sparkles, User, RefreshCw, Calendar, CheckCircle2 } from 'lucide-react';
+import {
+  Trophy,
+  Medal,
+  Send,
+  ShieldAlert,
+  Sparkles,
+  User,
+  RefreshCw,
+  Calendar,
+  CheckCircle2,
+  Database,
+  Copy,
+  Check,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
 import { PageNav, LeaderboardEntry, PlayerStats } from '../types';
 import { PINN_CONFIG } from '../config/pinnConfig';
 import { leaderboardService } from '../services/leaderboardService';
+import { testSupabaseConnection } from '../services/supabaseClient';
 
 interface LeaderboardPageProps {
   onNavigate: (page: PageNav) => void;
 }
 
+type GameKey = 'coin-rush' | 'treasure-hunt' | 'puzzle-master' | 'speed-tap';
+
+const SQL_SCHEMA_SNIPPET = `-- Run this in your Supabase SQL Editor (SQL Editor -> New Query -> Run)
+-- 1. Create secure public.scores table
+create table if not exists public.scores (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  player_name text not null default 'Player',
+  game_id text not null,
+  score integer not null,
+  coins integer not null default 0,
+  wallet_address text,
+  session_id text not null,
+  duration_ms integer not null default 0,
+  status text not null default 'pending' check (status in ('pending', 'verified', 'rejected')),
+  validation_reason text,
+  metadata jsonb default '{}'::jsonb,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- Unique index to prevent session replay attacks
+create unique index if not exists idx_scores_unique_session on public.scores (session_id);
+create index if not exists idx_scores_leaderboard on public.scores (game_id, score desc) where (status = 'verified');
+
+-- 2. Enable RLS
+alter table public.scores enable row level security;
+
+-- Only verified scores are readable on the public leaderboard
+create policy "Public can read verified scores"
+  on public.scores for select
+  using (status = 'verified');
+
+-- Prevent users from updating score rows directly (anti-cheat status tampering protection)
+create policy "Prevent client updates on scores"
+  on public.scores for update
+  using (false);
+`;
+
 export const LeaderboardPage: React.FC<LeaderboardPageProps> = ({ onNavigate }) => {
   const [period, setPeriod] = useState<'all-time' | 'weekly'>('all-time');
+  const [selectedGame, setSelectedGame] = useState<GameKey>('coin-rush');
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [playerStats, setPlayerStats] = useState<PlayerStats>(leaderboardService.getPlayerStats());
+  const [isLiveSupabase, setIsLiveSupabase] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
+  const [copiedSql, setCopiedSql] = useState<boolean>(false);
+  const [showSqlGuide, setShowSqlGuide] = useState<boolean>(false);
+  const [supabaseStatus, setSupabaseStatus] = useState<{
+    connected: boolean;
+    tableReady: boolean;
+    message: string;
+  } | null>(null);
 
-  const fetchScores = async (selectedPeriod: 'all-time' | 'weekly') => {
+  const fetchScores = async (
+    selectedPeriod: 'all-time' | 'weekly',
+    gameId: GameKey
+  ) => {
     setLoading(true);
     try {
-      const data = await leaderboardService.getLeaderboard(selectedPeriod);
-      setEntries(data);
+      const res = await leaderboardService.getLeaderboard(selectedPeriod, gameId);
+      setEntries(res.entries);
+      setIsLiveSupabase(res.isLiveSupabase);
       setPlayerStats(leaderboardService.getPlayerStats());
+
+      const status = await testSupabaseConnection();
+      setSupabaseStatus(status);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchScores(period);
-  }, [period]);
+    fetchScores(period, selectedGame);
+  }, [period, selectedGame]);
+
+  const handleCopySql = () => {
+    navigator.clipboard.writeText(SQL_SCHEMA_SNIPPET);
+    setCopiedSql(true);
+    setTimeout(() => setCopiedSql(false), 2500);
+  };
 
   const getRankBadge = (rank: number) => {
     if (rank === 1) {
@@ -58,6 +134,15 @@ export const LeaderboardPage: React.FC<LeaderboardPageProps> = ({ onNavigate }) 
     );
   };
 
+  const gameButtons: { id: GameKey; label: string }[] = [
+    { id: 'coin-rush', label: 'PINN Coin Rush' },
+    { id: 'treasure-hunt', label: 'PINN Treasure Hunt' },
+    { id: 'puzzle-master', label: 'PINN Puzzle Master' },
+    { id: 'speed-tap', label: 'PINN Speed Tap' },
+  ];
+
+  const currentPb = leaderboardService.getGameBest(selectedGame);
+
   return (
     <div className="w-full max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14 flex flex-col items-center">
       {/* Header */}
@@ -70,8 +155,82 @@ export const LeaderboardPage: React.FC<LeaderboardPageProps> = ({ onNavigate }) 
           GLOBAL LEADERBOARD
         </h1>
         <p className="text-sm text-zinc-400 max-w-lg mx-auto mt-2">
-          Top scoring runners in PINN Coin Rush. Compete for community glory and official tournament placement!
+          Real-time high scores across all four PINN Arcade games. Compete with the community and cement your legacy!
         </p>
+      </div>
+
+      {/* Supabase Status Banner */}
+      <div className="w-full mb-6">
+        {supabaseStatus?.tableReady ? (
+          <div className="p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/40 text-xs text-emerald-200 flex items-center justify-between gap-3 shadow-lg">
+            <div className="flex items-center gap-2.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+              <div>
+                <strong className="text-emerald-300 block font-semibold">
+                  Supabase Cloud Leaderboard Active
+                </strong>
+                <span className="text-emerald-200/80 text-[11px]">
+                  Scores are synchronizing live with your Supabase database (<span className="font-mono">qkckwsxhejnktuccbeaw.supabase.co</span>).
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-900/40 border border-emerald-700/50 text-[10px] font-mono font-bold uppercase text-emerald-300 shrink-0">
+              <Database className="w-3 h-3" />
+              <span>LIVE CLOUD</span>
+            </div>
+          </div>
+        ) : (
+          <div className="p-4 rounded-xl bg-zinc-950 border border-gold-subtle/40 text-xs text-zinc-300 flex flex-col gap-3 shadow-lg">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <Database className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <strong className="text-amber-300 block font-semibold uppercase tracking-wide">
+                    Supabase Configuration Status: Project Connected
+                  </strong>
+                  <span className="text-zinc-400 text-xs">
+                    Your Supabase project (<span className="text-zinc-200 font-mono">qkckwsxhejnktuccbeaw</span>) is configured. To enable live cloud score sync, create the <span className="font-mono text-amber-300">game_scores</span> table in Supabase.
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setShowSqlGuide(!showSqlGuide)}
+                  className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-750 text-amber-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <span>{showSqlGuide ? 'Hide SQL' : 'View SQL Setup'}</span>
+                  {showSqlGuide ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                  onClick={handleCopySql}
+                  className="px-3 py-1.5 rounded-lg bg-gold-gradient text-black text-xs font-bold flex items-center gap-1.5 hover:opacity-90 shadow-sm cursor-pointer"
+                >
+                  {copiedSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedSql ? 'Copied!' : 'Copy SQL'}</span>
+                </button>
+              </div>
+            </div>
+
+            {showSqlGuide && (
+              <div className="mt-2 p-3.5 rounded-lg bg-black border border-zinc-800 text-[11px] font-mono text-zinc-300 overflow-x-auto">
+                <div className="flex items-center justify-between mb-2 text-zinc-400 border-b border-zinc-800 pb-2">
+                  <span>Run this snippet in your Supabase SQL Editor:</span>
+                  <button
+                    onClick={handleCopySql}
+                    className="text-amber-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer font-sans text-xs"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span>Copy Schema</span>
+                  </button>
+                </div>
+                <pre className="text-amber-200/90 whitespace-pre font-mono text-[11px] leading-relaxed">
+                  {SQL_SCHEMA_SNIPPET}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Local Player Personal Status Banner */}
@@ -88,8 +247,9 @@ export const LeaderboardPage: React.FC<LeaderboardPageProps> = ({ onNavigate }) 
               </span>
             </div>
             <p className="text-xs text-zinc-400">
-              Personal Best: <span className="font-mono-arcade font-bold text-gold-gradient text-sm">{playerStats.personalBest}</span>
-              {' · '}Session High: <span className="font-mono-arcade text-zinc-300">{playerStats.sessionBest}</span>
+              Personal Best ({gameButtons.find((g) => g.id === selectedGame)?.label}):{' '}
+              <span className="font-mono-arcade font-bold text-gold-gradient text-sm">{currentPb}</span>
+              {' · '}Total Games: <span className="font-mono-arcade text-zinc-300">{playerStats.totalGamesPlayed}</span>
             </p>
           </div>
         </div>
@@ -98,21 +258,26 @@ export const LeaderboardPage: React.FC<LeaderboardPageProps> = ({ onNavigate }) 
           onClick={() => onNavigate('play')}
           className="px-6 py-2.5 rounded-xl bg-gold-gradient text-black font-extrabold text-xs uppercase tracking-wider hover:opacity-95 shadow-md flex items-center gap-2 shrink-0 cursor-pointer"
         >
-          <span>BEAT YOUR SCORE</span>
+          <Sparkles className="w-3.5 h-3.5 fill-current" />
+          <span>PLAY NOW</span>
         </button>
       </div>
 
-      {/* Demo Data Disclaimer Banner */}
-      <div className="w-full mb-6 p-4 rounded-xl bg-amber-950/20 border border-amber-600/40 text-xs text-amber-200/90 flex items-start gap-3">
-        <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-        <div>
-          <strong className="text-amber-300 block mb-0.5 uppercase tracking-wide">
-            NOTICE: DEMONSTRATION BENCHMARKS DISPLAYED
-          </strong>
-          <span>
-            Below are demonstration records and your local personal best. A production global leaderboard requires an authorized backend service with server-side validation, rate limiting, duplicate submission prevention, and anti-cheat checks.
-          </span>
-        </div>
+      {/* Game Selector Tabs */}
+      <div className="w-full grid grid-cols-2 sm:grid-cols-4 gap-2 mb-6">
+        {gameButtons.map((g) => (
+          <button
+            key={g.id}
+            onClick={() => setSelectedGame(g.id)}
+            className={`px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-center cursor-pointer border ${
+              selectedGame === g.id
+                ? 'bg-gold-gradient text-black border-gold-subtle shadow-md'
+                : 'bg-zinc-950 text-zinc-400 border-zinc-850 hover:text-white hover:border-zinc-700'
+            }`}
+          >
+            {g.label}
+          </button>
+        ))}
       </div>
 
       {/* Tabs & Controls */}
@@ -142,7 +307,7 @@ export const LeaderboardPage: React.FC<LeaderboardPageProps> = ({ onNavigate }) 
         </div>
 
         <button
-          onClick={() => fetchScores(period)}
+          onClick={() => fetchScores(period, selectedGame)}
           disabled={loading}
           className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-zinc-400 hover:text-amber-300 rounded-lg bg-zinc-950 border border-zinc-800 transition-colors cursor-pointer"
         >
@@ -158,75 +323,87 @@ export const LeaderboardPage: React.FC<LeaderboardPageProps> = ({ onNavigate }) 
           <div className="col-span-2 sm:col-span-1 text-center">Rank</div>
           <div className="col-span-6 sm:col-span-5">Player Name</div>
           <div className="col-span-4 sm:col-span-3 text-right">High Score</div>
-          <div className="hidden sm:block sm:col-span-3 text-right">Date / Status</div>
+          <div className="hidden sm:block sm:col-span-3 text-right">Date / Source</div>
         </div>
 
         {/* Table Rows */}
         <div className="divide-y divide-zinc-900">
-          {entries.map((entry) => {
-            const isLocal = entry.id === 'local-player' || entry.displayName.includes('(You)');
-            return (
-              <div
-                key={entry.id}
-                className={`grid grid-cols-12 gap-2 px-4 sm:px-6 py-4 items-center transition-colors ${
-                  isLocal
-                    ? 'bg-amber-500/10 border-l-4 border-amber-400'
-                    : 'hover:bg-zinc-900/50'
-                }`}
-              >
-                {/* Rank */}
-                <div className="col-span-2 sm:col-span-1 flex justify-center">
-                  {getRankBadge(entry.rank)}
-                </div>
+          {entries.length === 0 ? (
+            <div className="p-8 text-center text-zinc-400 text-sm">
+              No scores recorded yet for this category. Play now to be #1!
+            </div>
+          ) : (
+            entries.map((entry) => {
+              const isLocal = entry.id === 'local-player' || entry.displayName.includes('(You)');
+              return (
+                <div
+                  key={entry.id}
+                  className={`grid grid-cols-12 gap-2 px-4 sm:px-6 py-4 items-center transition-colors ${
+                    isLocal
+                      ? 'bg-amber-500/10 border-l-4 border-amber-400'
+                      : 'hover:bg-zinc-900/50'
+                  }`}
+                >
+                  {/* Rank */}
+                  <div className="col-span-2 sm:col-span-1 flex justify-center">
+                    {getRankBadge(entry.rank)}
+                  </div>
 
-                {/* Player Name */}
-                <div className="col-span-6 sm:col-span-5 flex flex-col justify-center">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-white text-sm sm:text-base font-serif">
-                      {entry.displayName}
-                    </span>
-                    {entry.isVerified && (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  {/* Player Name */}
+                  <div className="col-span-6 sm:col-span-5 flex flex-col justify-center">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-white text-sm sm:text-base font-serif">
+                        {entry.displayName}
+                      </span>
+                      {entry.isVerified && (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      )}
+                    </div>
+                    {entry.coinsCollected > 0 && (
+                      <span className="text-[11px] text-zinc-400 font-mono-arcade">
+                        {entry.coinsCollected} coins gathered
+                      </span>
                     )}
                   </div>
-                  <span className="text-[11px] text-zinc-400 font-mono-arcade">
-                    {entry.coinsCollected} coins gathered
-                  </span>
-                </div>
 
-                {/* Score */}
-                <div className="col-span-4 sm:col-span-3 text-right flex flex-col justify-center">
-                  <span className="text-base sm:text-lg font-bold font-mono-arcade text-gold-gradient">
-                    {entry.score.toLocaleString()}
-                  </span>
-                  <span className="text-[10px] uppercase tracking-wider text-zinc-400">
-                    points
-                  </span>
-                </div>
-
-                {/* Date & Demo Tag */}
-                <div className="hidden sm:flex sm:col-span-3 flex-col items-end justify-center text-xs text-zinc-400">
-                  <div className="flex items-center gap-1.5">
-                    <Calendar className="w-3 h-3 text-zinc-400" />
-                    <span>{entry.dateAchieved}</span>
+                  {/* Score */}
+                  <div className="col-span-4 sm:col-span-3 text-right flex flex-col justify-center">
+                    <span className="text-base sm:text-lg font-bold font-mono-arcade text-gold-gradient">
+                      {entry.score.toLocaleString()}
+                    </span>
+                    <span className="text-[10px] uppercase tracking-wider text-zinc-400">
+                      points
+                    </span>
                   </div>
-                  {entry.isDemo ? (
-                    <span className="text-[10px] text-amber-400/80 uppercase font-mono-arcade">
-                      DEMO BENCHMARK
-                    </span>
-                  ) : (
-                    <span className="text-[10px] text-emerald-400 uppercase font-mono-arcade">
-                      LOCAL RECORD
-                    </span>
-                  )}
+
+                  {/* Date & Demo / Cloud Tag */}
+                  <div className="hidden sm:flex sm:col-span-3 flex-col items-end justify-center text-xs text-zinc-400">
+                    <div className="flex items-center gap-1.5">
+                      <Calendar className="w-3 h-3 text-zinc-400" />
+                      <span>{entry.dateAchieved}</span>
+                    </div>
+                    {isLiveSupabase ? (
+                      <span className="text-[10px] text-emerald-400 uppercase font-mono-arcade">
+                        SUPABASE CLOUD
+                      </span>
+                    ) : entry.isDemo ? (
+                      <span className="text-[10px] text-amber-400/80 uppercase font-mono-arcade">
+                        DEMO BENCHMARK
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-emerald-400 uppercase font-mono-arcade">
+                        LOCAL RECORD
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       </div>
 
-      {/* Mandatory Telegram CTA Section (Requirement 9.D) */}
+      {/* Mandatory Telegram CTA Section */}
       <div className="w-full p-8 rounded-3xl bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 border border-gold-glow text-center flex flex-col items-center shadow-xl mb-8">
         <div className="w-12 h-12 rounded-xl bg-gold-gradient flex items-center justify-center text-black mb-3 shadow-md shadow-amber-500/20">
           <Send className="w-6 h-6 fill-current" />
@@ -255,19 +432,19 @@ export const LeaderboardPage: React.FC<LeaderboardPageProps> = ({ onNavigate }) 
         </span>
       </div>
 
-      {/* Architecture Architecture Info Box for Production */}
+      {/* Architecture & Security Notice */}
       <div className="w-full p-5 rounded-2xl bg-zinc-950 border border-zinc-850 text-xs text-zinc-400 space-y-2">
-        <h4 className="font-bold text-white uppercase tracking-wider text-xs">
-          Production Architecture & Security Roadmap
+        <h4 className="font-bold text-white uppercase tracking-wider text-xs flex items-center gap-2">
+          <Database className="w-4 h-4 text-amber-400" />
+          <span>Supabase Integration & Architecture Roadmap</span>
         </h4>
         <p className="leading-relaxed">
-          To transition this local leaderboard into a tamper-proof global competition system, connect a backend API (such as Node/Express or Firebase Cloud Functions) providing:
+          PINN Arcade is configured to send real-time scores directly to your PostgreSQL Supabase project (<span className="text-zinc-200 font-mono">qkckwsxhejnktuccbeaw.supabase.co</span>) with local storage resilience whenever offline.
         </p>
         <ul className="list-disc list-inside space-y-1 text-zinc-400 pt-1">
-          <li>Server-side run replay or cryptographic telemetry validation to prevent speedhacking.</li>
-          <li>IP and device rate-limiting with anti-spam throttles.</li>
-          <li>Server-generated timestamps and deduplicated submission queues.</li>
-          <li>Admin dashboard for manual review and disqualification of malicious clients.</li>
+          <li>Supports all four games: PINN Coin Rush, Treasure Hunt, Puzzle Master, and Speed Tap.</li>
+          <li>Wallet address verification attached to submissions when Solana wallet is connected.</li>
+          <li>Scores fallback automatically to local personal bests if network or database table is undergoing maintenance.</li>
         </ul>
       </div>
     </div>

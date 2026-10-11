@@ -1,46 +1,137 @@
-import React, { useState } from 'react';
-import { Send, Gift, ShieldAlert, ShieldCheck, CheckCircle2, ExternalLink, Search, Sparkles, Award } from 'lucide-react';
-import { PageNav, CompetitionWinner } from '../types';
+import React, { useState, useEffect } from 'react';
+import {
+  Send,
+  Gift,
+  ShieldAlert,
+  ShieldCheck,
+  CheckCircle2,
+  ExternalLink,
+  Search,
+  Sparkles,
+  Award,
+  Trophy,
+  Clock,
+  Coins,
+  Lock,
+  User,
+  Wallet,
+  AlertTriangle,
+  RefreshCw,
+  Check,
+  Copy,
+  ChevronRight,
+  Info,
+} from 'lucide-react';
+import {
+  PageNav,
+  Tournament,
+  RewardRequest,
+  PaymentRecord,
+  TournamentRankingEntry,
+} from '../types';
 import { PINN_CONFIG } from '../config/pinnConfig';
+import { tournamentService } from '../services/tournamentService';
+import { adminService } from '../services/adminService';
+import { getCurrentUser } from '../services/supabaseClient';
+import { walletService } from '../services/walletService';
 
 interface RewardsPageProps {
   onNavigate: (page: PageNav) => void;
+  onOpenAuthModal?: () => void;
 }
 
-// Sample verified winners (clearly marked as demonstration records)
-const DEMO_WINNERS: CompetitionWinner[] = [
-  {
-    rank: 1,
-    displayName: 'MontegoKing',
-    walletSnippet: '7xKX...gAsU',
-    score: 14850,
-    rewardText: 'Tier 1 Community Champion Allocation',
-    txSignature: '4hGf7uK9z...3mNq',
-    isDemo: true,
-  },
-  {
-    rank: 2,
-    displayName: 'PinnaclePro',
-    walletSnippet: '3J98...V4F2',
-    score: 12420,
-    rewardText: 'Tier 2 Runner-up Allocation',
-    txSignature: '2xYp8wQ4...9kLs',
-    isDemo: true,
-  },
-  {
-    rank: 3,
-    displayName: 'SolanaSurfer',
-    walletSnippet: '8mKb...7dJ8',
-    score: 10980,
-    rewardText: 'Tier 3 Podium Finisher Allocation',
-    txSignature: '5zRt1aX7...8bCv',
-    isDemo: true,
-  },
-];
+type RewardsTab = 'results' | 'my-rewards' | 'my-payouts' | 'rules';
 
-export const RewardsPage: React.FC<RewardsPageProps> = ({ onNavigate }) => {
+export const RewardsPage: React.FC<RewardsPageProps> = ({ onNavigate, onOpenAuthModal }) => {
+  const [activeTab, setActiveTab] = useState<RewardsTab>('results');
   const [txLookupInput, setTxLookupInput] = useState('');
+  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+
+  // User and Wallet State
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [walletState, setWalletState] = useState(walletService.getState());
+
+  // Data
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [selectedTournament, setSelectedTournament] = useState<Tournament | null>(null);
+  const [rankings, setRankings] = useState<TournamentRankingEntry[]>([]);
+  const [loadingRankings, setLoadingRankings] = useState(false);
+
+  // Player-specific rewards & payments (Strict privacy)
+  const [myRewards, setMyRewards] = useState<RewardRequest[]>([]);
+  const [myPayments, setMyPayments] = useState<PaymentRecord[]>([]);
+  const [loadingMyData, setLoadingMyData] = useState(false);
+
   const comp = PINN_CONFIG.COMPETITION;
+
+  // Subscribe to wallet state
+  useEffect(() => {
+    const unsub = walletService.subscribe((state) => {
+      setWalletState(state);
+    });
+    return () => unsub();
+  }, []);
+
+  // Fetch initial data
+  useEffect(() => {
+    loadUserDataAndTournaments();
+  }, [walletState.address]);
+
+  const loadUserDataAndTournaments = async () => {
+    try {
+      const user = await getCurrentUser();
+      setCurrentUser(user);
+
+      const tourns = await tournamentService.getTournaments();
+      setTournaments(tourns);
+
+      // Select active or completed tournament for results
+      const defaultTourn =
+        tourns.find((t) => t.status === 'completed') ||
+        tourns.find((t) => t.status === 'active') ||
+        tourns[0];
+      if (defaultTourn) {
+        setSelectedTournament(defaultTourn);
+        loadRankingsForTournament(defaultTourn.id);
+      }
+
+      // Load player-specific rewards & payments
+      const uid = user?.id;
+      const wAddr = walletState.address || undefined;
+
+      if (uid || wAddr) {
+        setLoadingMyData(true);
+        const [rewardsList, paymentsList] = await Promise.all([
+          adminService.getPlayerRewardRequests(uid, wAddr),
+          adminService.getPlayerPaymentRecords(uid, wAddr),
+        ]);
+        setMyRewards(rewardsList);
+        setMyPayments(paymentsList);
+        setLoadingMyData(false);
+      } else {
+        setMyRewards([]);
+        setMyPayments([]);
+      }
+    } catch (err) {
+      console.error('Error loading rewards data:', err);
+    }
+  };
+
+  const loadRankingsForTournament = async (tournId: string) => {
+    setLoadingRankings(true);
+    try {
+      const r = await tournamentService.getTournamentRankings(tournId);
+      // Strictly verified scores only
+      setRankings(r);
+    } finally {
+      setLoadingRankings(false);
+    }
+  };
+
+  const handleSelectTournament = (tourn: Tournament) => {
+    setSelectedTournament(tourn);
+    loadRankingsForTournament(tourn.id);
+  };
 
   const handleOpenTx = (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,371 +140,628 @@ export const RewardsPage: React.FC<RewardsPageProps> = ({ onNavigate }) => {
     window.open(`${PINN_CONFIG.SOLSCAN_TX_BASE_URL}${clean}`, '_blank', 'noopener,noreferrer');
   };
 
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedAddress(text);
+    setTimeout(() => setCopiedAddress(null), 2000);
+  };
+
   return (
-    <div className="w-full max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14 flex flex-col items-center">
-      {/* Header */}
-      <div className="text-center mb-10">
+    <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14 flex flex-col items-center">
+      {/* Page Header */}
+      <div className="text-center mb-8">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900 border border-gold-subtle/50 text-amber-300 text-xs font-semibold uppercase tracking-wider mb-2">
           <Gift className="w-3.5 h-3.5" />
-          <span>Ecosystem Rewards & Competitions</span>
+          <span>Ecosystem Rewards & Prize Management Hub</span>
         </div>
         <h1 className="text-3xl sm:text-5xl font-black text-white font-serif uppercase tracking-tight">
-          PINN REWARDS
+          PINN REWARDS & PRIZES
         </h1>
-        <p className="text-sm text-zinc-400 max-w-xl mx-auto mt-2">
-          How community competitions, tournament leaderboards, and potential $PINN rewards operate.
+        <p className="text-sm text-zinc-400 max-w-2xl mx-auto mt-2">
+          Transparent, verifiable tournament rewards for PINN Arcade. Every prize payout is verified
+          on the Solana blockchain with the official $PINN token mint.
         </p>
+
+        {/* Token Mint Verification Banner */}
+        <div className="mt-4 inline-flex flex-wrap items-center justify-center gap-2 px-4 py-2 rounded-2xl bg-zinc-950 border border-gold-subtle/40 text-xs">
+          <span className="text-zinc-400 font-semibold">Official $PINN Token Mint:</span>
+          <code className="text-amber-300 font-mono text-[11px] bg-black/60 px-2 py-0.5 rounded border border-zinc-800">
+            {PINN_CONFIG.TOKEN_MINT_ADDRESS}
+          </code>
+          <button
+            onClick={() => handleCopy(PINN_CONFIG.TOKEN_MINT_ADDRESS)}
+            title="Copy Mint Address"
+            className="text-zinc-400 hover:text-amber-300 p-1 cursor-pointer"
+          >
+            {copiedAddress === PINN_CONFIG.TOKEN_MINT_ADDRESS ? (
+              <Check className="w-3.5 h-3.5 text-emerald-400" />
+            ) : (
+              <Copy className="w-3.5 h-3.5" />
+            )}
+          </button>
+          <a
+            href={PINN_CONFIG.SOLSCAN_TOKEN_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-amber-400 hover:underline text-[11px] font-bold ml-1"
+          >
+            <span>Solscan</span>
+            <ExternalLink className="w-3 h-3" />
+          </a>
+        </div>
       </div>
 
-      {/* SECTION A: HOW TO PARTICIPATE (5 Steps) */}
-      <section className="w-full mb-12">
-        <div className="p-6 sm:p-8 rounded-3xl bg-zinc-950 border border-gold-subtle/40 shadow-xl">
-          <div className="flex items-center gap-2 mb-6">
-            <span className="w-6 h-6 rounded-md bg-gold-gradient flex items-center justify-center text-black font-bold text-xs">
-              A
-            </span>
-            <h2 className="text-xl sm:text-2xl font-bold text-white uppercase font-serif tracking-tight">
-              HOW TO PARTICIPATE
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-            {[
-              {
-                step: 1,
-                title: 'Play PINN Coin Rush',
-                desc: 'Open the game in any mobile or desktop browser completely free of charge.',
-              },
-              {
-                step: 2,
-                title: 'Improve Your Score',
-                desc: 'Master jumping, sliding, and dodging to set a competitive personal best score.',
-              },
-              {
-                step: 3,
-                title: 'Join Competitions',
-                desc: 'Participate during officially announced competitive tournament windows.',
-              },
-              {
-                step: 4,
-                title: 'Review the Rules',
-                desc: 'Confirm rules, eligibility terms, and fair play requirements.',
-              },
-              {
-                step: 5,
-                title: 'Check the Results',
-                desc: 'Follow the official Telegram community to view verified winners and rankings.',
-              },
-            ].map((item) => (
-              <div
-                key={item.step}
-                className="p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 flex flex-col justify-between"
-              >
-                <div>
-                  <div className="w-8 h-8 rounded-xl bg-gold-gradient text-black font-black text-xs flex items-center justify-center mb-3">
-                    0{item.step}
-                  </div>
-                  <h3 className="font-bold text-white text-sm mb-1 uppercase font-serif">
-                    {item.title}
-                  </h3>
-                  <p className="text-xs text-zinc-400 leading-relaxed">{item.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-6 pt-4 border-t border-zinc-900 flex justify-center">
-            <button
-              onClick={() => onNavigate('play')}
-              className="px-6 py-2.5 rounded-xl bg-gold-gradient text-black font-bold text-xs uppercase tracking-wider hover:opacity-95 shadow-md flex items-center gap-2 cursor-pointer"
-            >
-              <span>LAUNCH GAME & PRACTICE NOW</span>
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* SECTION B: COMPETITIONS */}
-      <section className="w-full mb-12">
-        <div className="p-6 sm:p-8 rounded-3xl bg-zinc-950 border border-gold-glow shadow-2xl">
-          <div className="flex items-center gap-2 mb-6">
-            <span className="w-6 h-6 rounded-md bg-gold-gradient flex items-center justify-center text-black font-bold text-xs">
-              B
-            </span>
-            <h2 className="text-xl sm:text-2xl font-bold text-white uppercase font-serif tracking-tight">
-              COMMUNITY COMPETITIONS
-            </h2>
-          </div>
-
-          {comp.IS_ACTIVE ? (
-            <div className="space-y-6">
-              {/* Competition Header Card */}
-              <div className="p-5 rounded-2xl bg-gradient-to-r from-zinc-900 via-zinc-900/80 to-zinc-900 border border-gold-subtle/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <div className="inline-flex items-center gap-2 text-xs font-mono-arcade text-emerald-400 uppercase mb-1">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    <span>Status: {comp.STATUS}</span>
-                  </div>
-                  <h3 className="text-xl sm:text-2xl font-bold text-white font-serif uppercase">
-                    {comp.TITLE}
-                  </h3>
-                  <span className="text-xs text-zinc-400 font-mono-arcade">
-                    {comp.START_DATE} — {comp.END_DATE}
-                  </span>
-                </div>
-
-                <div className="px-4 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-right">
-                  <span className="text-[11px] uppercase tracking-wider text-zinc-400 block font-mono-arcade">
-                    Entry Cost
-                  </span>
-                  <span className="text-sm font-bold text-amber-300 font-mono-arcade">
-                    100% Free Entry
-                  </span>
-                </div>
-              </div>
-
-              {/* Competition Rules & Eligibility */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div className="p-5 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-3">
-                  <h4 className="text-xs font-bold text-amber-400 uppercase tracking-wider font-mono-arcade">
-                    Official Competition Rules
-                  </h4>
-                  <ul className="space-y-2 text-xs text-zinc-300">
-                    {comp.RULES.map((rule, idx) => (
-                      <li key={idx} className="flex items-start gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                        <span className="leading-relaxed">{rule}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="p-5 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-3">
-                  <h4 className="text-xs font-bold text-amber-400 uppercase tracking-wider font-mono-arcade">
-                    Eligibility Requirements
-                  </h4>
-                  <ul className="space-y-2 text-xs text-zinc-300">
-                    {comp.ELIGIBILITY_REQUIREMENTS.map((req, idx) => (
-                      <li key={idx} className="flex items-start gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                        <span className="leading-relaxed">{req}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+      {/* Player Session & Wallet Authentication Bar */}
+      <div className="w-full mb-8 p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-gold-gradient text-black flex items-center justify-center font-bold">
+              <User className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-xs text-zinc-400 font-semibold uppercase">Player Account</div>
+              <div className="text-xs font-bold text-white">
+                {currentUser?.email || (currentUser ? 'Authenticated Player' : 'Not Signed In')}
               </div>
             </div>
-          ) : (
-            <div className="p-10 rounded-2xl bg-zinc-900/40 border border-zinc-800 text-center">
-              <h3 className="text-lg font-bold text-zinc-400 font-serif uppercase tracking-wider">
-                NO ACTIVE COMPETITIONS
-              </h3>
-              <p className="text-xs text-zinc-500 mt-2 max-w-md mx-auto">
-                No official competition is currently active. Follow the Telegram community for the next tournament announcement date.
-              </p>
+          </div>
+
+          <div className="h-6 w-px bg-zinc-800 hidden sm:block" />
+
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-zinc-900 border border-zinc-700 text-amber-400 flex items-center justify-center font-bold">
+              <Wallet className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-xs text-zinc-400 font-semibold uppercase">Solana Wallet</div>
+              <div className="text-xs font-bold text-white font-mono">
+                {walletState.isConnected && walletState.address ? (
+                  `${walletState.address.slice(0, 6)}...${walletState.address.slice(-6)}`
+                ) : (
+                  <span className="text-zinc-500">Unconnected</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {!currentUser && onOpenAuthModal && (
+            <button
+              onClick={onOpenAuthModal}
+              className="px-4 py-2 rounded-xl bg-gold-gradient text-black font-extrabold text-xs uppercase tracking-wider shadow hover:scale-105 transition-all cursor-pointer"
+            >
+              Sign In to View My Rewards
+            </button>
+          )}
+          <button
+            onClick={loadUserDataAndTournaments}
+            title="Refresh Data"
+            className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-amber-400 cursor-pointer"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Navigation Tabs */}
+      <div className="w-full mb-8 flex flex-wrap items-center justify-center gap-2 border-b border-zinc-800 pb-4">
+        {[
+          { id: 'results', label: 'Verified Tournament Results', icon: Trophy },
+          { id: 'my-rewards', label: 'My Eligible & Pending Rewards', icon: Award },
+          { id: 'my-payouts', label: 'Completed Payouts & Explorer', icon: CheckCircle2 },
+          { id: 'rules', label: 'Fair Play & Reward Rules', icon: ShieldCheck },
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as RewardsTab)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                isActive
+                  ? 'bg-gold-gradient text-black shadow-lg shadow-amber-500/10'
+                  : 'bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              <span>{tab.label}</span>
+              {tab.id === 'my-rewards' && myRewards.length > 0 && (
+                <span className="ml-1 px-1.5 py-0.2 rounded-full bg-black text-amber-300 text-[10px]">
+                  {myRewards.length}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* =========================================================================
+          TAB 1: VERIFIED TOURNAMENT RESULTS & PODIUM WINNERS
+      ========================================================================= */}
+      {activeTab === 'results' && (
+        <section className="w-full flex flex-col gap-6">
+          {/* Tournament selector pills */}
+          <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 flex flex-wrap items-center justify-between gap-3">
+            <span className="text-xs text-zinc-400 font-bold uppercase tracking-wider">
+              Select Tournament Bracket:
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {tournaments.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => handleSelectTournament(t)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    selectedTournament?.id === t.id
+                      ? 'bg-amber-400/20 text-amber-300 border border-amber-400/50'
+                      : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-white'
+                  }`}
+                >
+                  {t.title} ({t.status.toUpperCase()})
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {selectedTournament && (
+            <div className="p-6 sm:p-8 rounded-3xl bg-zinc-950 border border-gold-glow shadow-2xl">
+              {/* Tournament Prize Allocation Banner */}
+              <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-zinc-800">
+                <div>
+                  <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-bold uppercase mb-2">
+                    Official Tournament Prize Allocation
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-bold text-white uppercase font-serif">
+                    {selectedTournament.title}
+                  </h2>
+                  <p className="text-xs text-zinc-400 mt-1 max-w-xl">
+                    {selectedTournament.prizeDescription}
+                  </p>
+                </div>
+
+                <div className="text-right">
+                  <div className="text-[10px] text-zinc-400 uppercase font-bold">Total Prize Pool</div>
+                  <div className="text-2xl sm:text-3xl font-black text-gold-gradient font-serif">
+                    {selectedTournament.prizePool}
+                  </div>
+                  <div className="text-[10px] text-emerald-400 font-bold mt-0.5">
+                    Funded in $PINN SPL Tokens
+                  </div>
+                </div>
+              </div>
+
+              {/* Strict Verification Note */}
+              <div className="mt-4 p-3 rounded-xl bg-amber-950/20 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>
+                  <strong>Anti-Cheat Rule:</strong> Only server-verified scores processed by the
+                  anti-cheat system qualify for official podium ranking and prize eligibility. Unverified,
+                  pending, or disqualified runs are strictly excluded.
+                </span>
+              </div>
+
+              {/* Verified Podium Table */}
+              <div className="mt-6">
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <Award className="w-4 h-4 text-amber-400" />
+                  <span>Official Verified Rankings & Prize Winners</span>
+                </h3>
+
+                {loadingRankings ? (
+                  <div className="p-12 text-center text-zinc-500 text-xs">
+                    Loading verified tournament rankings...
+                  </div>
+                ) : rankings.length === 0 ? (
+                  <div className="p-12 text-center text-zinc-500 text-xs">
+                    No verified scores have been recorded yet for this tournament.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto rounded-2xl border border-zinc-800">
+                    <table className="w-full text-left text-xs sm:text-sm">
+                      <thead>
+                        <tr className="border-b border-zinc-800 bg-zinc-900/60 text-zinc-400 uppercase text-[11px] tracking-wider">
+                          <th className="py-3 px-4">Rank</th>
+                          <th className="py-3 px-4">Player Display Name</th>
+                          <th className="py-3 px-4">Verified Score</th>
+                          <th className="py-3 px-4">Eligible Prize Allocation</th>
+                          <th className="py-3 px-4 text-right">Verification Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-900">
+                        {rankings.slice(0, 10).map((entry) => {
+                          const isTopPodium = entry.rank <= 3;
+                          return (
+                            <tr
+                              key={entry.rank}
+                              className={`hover:bg-zinc-900/40 ${
+                                isTopPodium ? 'bg-amber-950/10' : ''
+                              }`}
+                            >
+                              <td className="py-3.5 px-4 font-bold">
+                                {entry.rank === 1 && (
+                                  <span className="inline-flex items-center gap-1 text-amber-300">
+                                    🥇 #1
+                                  </span>
+                                )}
+                                {entry.rank === 2 && (
+                                  <span className="inline-flex items-center gap-1 text-zinc-300">
+                                    🥈 #2
+                                  </span>
+                                )}
+                                {entry.rank === 3 && (
+                                  <span className="inline-flex items-center gap-1 text-amber-600">
+                                    🥉 #3
+                                  </span>
+                                )}
+                                {entry.rank > 3 && (
+                                  <span className="text-zinc-500 font-mono">#{entry.rank}</span>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-4 font-bold text-white">
+                                {entry.playerName}
+                                {entry.walletAddress && (
+                                  <span className="block text-[10px] text-zinc-500 font-mono">
+                                    {entry.walletAddress.slice(0, 4)}...
+                                    {entry.walletAddress.slice(-4)}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-4 font-mono-arcade font-bold text-amber-300 text-sm">
+                                {entry.score.toLocaleString()}
+                              </td>
+                              <td className="py-3.5 px-4 font-bold font-serif text-gold-gradient">
+                                {entry.potentialPrize || (isTopPodium ? 'Podium Tier Prize' : 'Rank Honor')}
+                              </td>
+                              <td className="py-3.5 px-4 text-right">
+                                {entry.isVerified ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[10px] font-bold uppercase tracking-wider">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    Verified
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[10px] font-bold uppercase tracking-wider">
+                                    <Clock className="w-3 h-3" />
+                                    Pending Audit
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           )}
-        </div>
-      </section>
+        </section>
+      )}
 
-      {/* SECTION C: REWARD POOL */}
-      <section className="w-full mb-12">
-        <div className="p-6 sm:p-8 rounded-3xl bg-zinc-950 border border-gold-subtle/40 shadow-xl">
-          <div className="flex items-center gap-2 mb-6">
-            <span className="w-6 h-6 rounded-md bg-gold-gradient flex items-center justify-center text-black font-bold text-xs">
-              C
-            </span>
-            <h2 className="text-xl sm:text-2xl font-bold text-white uppercase font-serif tracking-tight">
-              REWARD POOL INFORMATION
-            </h2>
-          </div>
-
-          <div className="p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-wider text-zinc-400 font-mono-arcade">
-                Pool Funding Model
-              </span>
-              <span className="text-xs font-bold text-amber-300 font-mono-arcade">
-                Community & Admin Sponsored
-              </span>
-            </div>
-
-            <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed">
-              {comp.REWARD_POOL_INFORMATION}
-            </p>
-
-            <div className="pt-2 text-[11px] text-zinc-400 leading-relaxed border-t border-zinc-800">
-              Disclaimer: The website does not custody user cryptocurrency balances, nor does it guarantee monetary amounts. Rewards are allocated based on verified competition parameters disclosed beforehand.
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* SECTION D: WINNERS (Verified Records) */}
-      <section className="w-full mb-12">
-        <div className="p-6 sm:p-8 rounded-3xl bg-zinc-950 border border-gold-subtle/40 shadow-xl">
-          <div className="flex items-center gap-2 mb-6">
-            <span className="w-6 h-6 rounded-md bg-gold-gradient flex items-center justify-center text-black font-bold text-xs">
-              D
-            </span>
-            <h2 className="text-xl sm:text-2xl font-bold text-white uppercase font-serif tracking-tight">
-              VERIFIED COMPETITION WINNERS
-            </h2>
-          </div>
-
-          {/* Demonstration Notice */}
-          <div className="mb-4 p-3 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-amber-300 flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
-            <span>
-              The records below illustrate the verification format for past seasonal sprints (DEMONSTRATION RECORDS).
-            </span>
-          </div>
-
-          <div className="space-y-3">
-            {DEMO_WINNERS.map((winner) => (
-              <div
-                key={winner.rank}
-                className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-zinc-800 text-amber-400 font-black text-xs flex items-center justify-center font-mono-arcade">
-                    #{winner.rank}
-                  </div>
-                  <div>
-                    <span className="font-bold text-white text-sm font-serif">{winner.displayName}</span>
-                    <span className="text-xs text-zinc-400 font-mono-arcade block">
-                      Wallet: {winner.walletSnippet} · Score: {winner.score.toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-amber-300 font-medium">{winner.rewardText}</span>
-                  {winner.isDemo && (
-                    <span className="text-[10px] font-mono-arcade px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 uppercase">
-                      Demo Data
-                    </span>
-                  )}
-                </div>
+      {/* =========================================================================
+          TAB 2: MY ELIGIBLE REWARDS & CLAIM STATUS (Strict Player Privacy)
+      ========================================================================= */}
+      {activeTab === 'my-rewards' && (
+        <section className="w-full flex flex-col gap-6">
+          <div className="p-6 sm:p-8 rounded-3xl bg-zinc-950 border border-gold-glow shadow-2xl">
+            <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold text-white uppercase font-serif tracking-tight flex items-center gap-2">
+                  <Award className="w-6 h-6 text-amber-400" />
+                  <span>MY ELIGIBLE REWARDS & ALLOCATIONS</span>
+                </h2>
+                <p className="text-xs text-zinc-400 mt-1">
+                  Private reward status for your authenticated player profile. Only you can view these
+                  records.
+                </p>
               </div>
-            ))}
+
+              <div className="text-right">
+                <span className="text-[10px] text-zinc-400 font-bold uppercase">Reward Records</span>
+                <div className="text-xl font-bold text-amber-300">{myRewards.length} Claims</div>
+              </div>
+            </div>
+
+            {!currentUser && (
+              <div className="p-8 rounded-2xl bg-zinc-900/60 border border-zinc-800 text-center flex flex-col items-center">
+                <Lock className="w-8 h-8 text-amber-400 mb-2" />
+                <h3 className="text-base font-bold text-white mb-1">Authentication Required</h3>
+                <p className="text-xs text-zinc-400 max-w-md mb-4">
+                  Please sign in with your player account so we can securely retrieve your verified
+                  podium finishes and pending reward claims.
+                </p>
+                {onOpenAuthModal && (
+                  <button
+                    onClick={onOpenAuthModal}
+                    className="px-6 py-2.5 rounded-xl bg-gold-gradient text-black font-extrabold text-xs uppercase tracking-wider cursor-pointer"
+                  >
+                    Player Sign In
+                  </button>
+                )}
+              </div>
+            )}
+
+            {currentUser && myRewards.length === 0 && (
+              <div className="p-8 rounded-2xl bg-zinc-900/40 border border-zinc-800 text-center flex flex-col items-center">
+                <Trophy className="w-8 h-8 text-zinc-600 mb-2" />
+                <h3 className="text-base font-bold text-white mb-1">No Active Reward Claims Yet</h3>
+                <p className="text-xs text-zinc-400 max-w-md mb-4">
+                  Compete in active tournaments, set a high score, and finish in the top podium ranks
+                  to unlock $PINN tournament prize allocations.
+                </p>
+                <button
+                  onClick={() => onNavigate('tournaments')}
+                  className="px-6 py-2.5 rounded-xl bg-gold-gradient text-black font-extrabold text-xs uppercase tracking-wider cursor-pointer"
+                >
+                  Browse Active Tournaments
+                </button>
+              </div>
+            )}
+
+            {currentUser && myRewards.length > 0 && (
+              <div className="overflow-x-auto rounded-2xl border border-zinc-800">
+                <table className="w-full text-left text-xs sm:text-sm">
+                  <thead>
+                    <tr className="border-b border-zinc-800 bg-zinc-900/60 text-zinc-400 uppercase text-[11px] tracking-wider">
+                      <th className="py-3 px-4">Tournament</th>
+                      <th className="py-3 px-4">Finish Rank</th>
+                      <th className="py-3 px-4">Verified Score</th>
+                      <th className="py-3 px-4">Prize Allocation</th>
+                      <th className="py-3 px-4">Claim Status</th>
+                      <th className="py-3 px-4 text-right">Admin Review Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-900">
+                    {myRewards.map((reward) => (
+                      <tr key={reward.id} className="hover:bg-zinc-900/40">
+                        <td className="py-3.5 px-4 font-bold text-white">
+                          {reward.tournamentTitle || reward.tournamentId}
+                        </td>
+                        <td className="py-3.5 px-4 font-bold text-amber-400">#{reward.rank}</td>
+                        <td className="py-3.5 px-4 font-mono-arcade font-bold text-amber-300">
+                          {reward.score.toLocaleString()}
+                        </td>
+                        <td className="py-3.5 px-4 font-bold font-serif text-gold-gradient text-base">
+                          {reward.rewardAmount}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span
+                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
+                              reward.status === 'completed'
+                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                                : reward.status === 'approved'
+                                ? 'bg-blue-500/20 text-blue-400 border-blue-500/40'
+                                : reward.status === 'prepared' || reward.status === 'pending_review'
+                                ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                                : 'bg-red-500/20 text-red-400 border-red-500/40'
+                            }`}
+                          >
+                            {reward.status.replace('_', ' ')}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-right text-xs text-zinc-400">
+                          {reward.adminNotes || 'Under tournament committee review.'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
-      {/* SECTION E: REWARD DISTRIBUTION & SOLSCAN TX EXPLORER */}
-      <section className="w-full mb-12">
-        <div className="p-6 sm:p-8 rounded-3xl bg-zinc-950 border border-gold-subtle/40 shadow-xl">
-          <div className="flex items-center gap-2 mb-6">
-            <span className="w-6 h-6 rounded-md bg-gold-gradient flex items-center justify-center text-black font-bold text-xs">
-              E
-            </span>
-            <h2 className="text-xl sm:text-2xl font-bold text-white uppercase font-serif tracking-tight">
-              REWARD DISTRIBUTION & VERIFICATION
-            </h2>
-          </div>
+      {/* =========================================================================
+          TAB 3: COMPLETED PAYOUTS & SOLANA EXPLORER (Proof of Payment)
+      ========================================================================= */}
+      {activeTab === 'my-payouts' && (
+        <section className="w-full flex flex-col gap-6">
+          <div className="p-6 sm:p-8 rounded-3xl bg-zinc-950 border border-gold-glow shadow-2xl">
+            <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold text-white uppercase font-serif tracking-tight flex items-center gap-2">
+                  <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+                  <span>COMPLETED PAYOUTS & ON-CHAIN PROOF</span>
+                </h2>
+                <p className="text-xs text-zinc-400 mt-1">
+                  Immutable record of verified token disbursements on the Solana blockchain.
+                </p>
+              </div>
 
-          <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed mb-6">
-            {comp.REWARD_DISTRIBUTION_INFORMATION}
-          </p>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-zinc-400 font-bold uppercase">Token Mint:</span>
+                <span className="text-xs text-amber-300 font-mono font-bold">$PINN</span>
+              </div>
+            </div>
 
-          {/* Solscan Signature Lookup Field */}
-          <div className="p-5 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-3">
-            <span className="text-xs uppercase font-mono-arcade text-zinc-400 block">
-              Verify Solana Payout Signature on Solscan
-            </span>
-            <form onSubmit={handleOpenTx} className="flex flex-col sm:flex-row gap-2">
-              <div className="relative flex-1">
+            {/* List of Player Completed Payments */}
+            {myPayments.length === 0 ? (
+              <div className="p-8 rounded-2xl bg-zinc-900/40 border border-zinc-800 text-center text-zinc-500 text-xs">
+                No completed payout transactions recorded for your connected account yet. Once
+                approved rewards are settled on-chain, transaction hashes and Solscan links will
+                appear here.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-2xl border border-zinc-800 mb-8">
+                <table className="w-full text-left text-xs sm:text-sm">
+                  <thead>
+                    <tr className="border-b border-zinc-800 bg-zinc-900/60 text-zinc-400 uppercase text-[11px] tracking-wider">
+                      <th className="py-3 px-4">Payout ID</th>
+                      <th className="py-3 px-4">Tournament</th>
+                      <th className="py-3 px-4">Disbursed Amount</th>
+                      <th className="py-3 px-4">Destination Wallet</th>
+                      <th className="py-3 px-4">Status & On-Chain Proof</th>
+                      <th className="py-3 px-4 text-right">Solscan Explorer</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-900">
+                    {myPayments.map((p) => (
+                      <tr key={p.id} className="hover:bg-zinc-900/40">
+                        <td className="py-3.5 px-4 font-mono text-zinc-400 text-xs">{p.id}</td>
+                        <td className="py-3.5 px-4 font-bold text-white">
+                          {p.tournamentTitle || p.tournamentId || 'PINN Tournament'}
+                        </td>
+                        <td className="py-3.5 px-4 font-bold font-serif text-gold-gradient text-base">
+                          {p.amount}
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-xs text-zinc-400">
+                          {p.walletAddress}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          {p.isVerifiedOnChain ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[10px] font-bold uppercase">
+                              <CheckCircle2 className="w-3 h-3" />
+                              Confirmed Mainnet
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[10px] font-bold uppercase">
+                              <Clock className="w-3 h-3" />
+                              {p.status}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          {p.txSignature ? (
+                            <a
+                              href={`${PINN_CONFIG.SOLSCAN_TX_BASE_URL}${p.txSignature}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-gold-subtle/30 text-amber-400 text-xs font-bold transition-all"
+                            >
+                              <span>View Tx</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          ) : (
+                            <span className="text-zinc-600 text-xs">Pending Tx</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Solscan Public Transaction Lookup Tool */}
+            <div className="p-6 rounded-2xl bg-zinc-900/80 border border-zinc-800">
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-2 flex items-center gap-2">
+                <Search className="w-4 h-4 text-amber-400" />
+                <span>Public Solana Transaction Signature Lookup</span>
+              </h3>
+              <p className="text-xs text-zinc-400 mb-4">
+                Verify any tournament reward distribution signature directly on the Solana block
+                explorer.
+              </p>
+              <form onSubmit={handleOpenTx} className="flex flex-wrap sm:flex-nowrap gap-2">
                 <input
                   type="text"
                   value={txLookupInput}
                   onChange={(e) => setTxLookupInput(e.target.value)}
-                  placeholder="Paste Solana transaction hash (e.g. 5x7h...)"
-                  className="w-full bg-black border border-zinc-700 rounded-xl px-4 py-3 text-xs sm:text-sm text-white focus:outline-none focus:border-amber-400 font-mono-arcade"
+                  placeholder="Paste 88-character Solana transaction signature..."
+                  className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-gold-glow font-mono"
                 />
+                <button
+                  type="submit"
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gold-gradient text-black font-extrabold text-xs uppercase tracking-wider hover:opacity-95 shrink-0 flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                >
+                  <Search className="w-3.5 h-3.5" />
+                  <span>Inspect On Solscan</span>
+                </button>
+              </form>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* =========================================================================
+          TAB 4: FAIR PLAY & REWARD RULES (5 Steps & Legal Disclaimers)
+      ========================================================================= */}
+      {activeTab === 'rules' && (
+        <section className="w-full flex flex-col gap-6">
+          <div className="p-6 sm:p-8 rounded-3xl bg-zinc-950 border border-gold-subtle/40 shadow-xl">
+            <div className="flex items-center gap-2 mb-6">
+              <span className="w-6 h-6 rounded-md bg-gold-gradient flex items-center justify-center text-black font-bold text-xs">
+                A
+              </span>
+              <h2 className="text-xl sm:text-2xl font-bold text-white uppercase font-serif tracking-tight">
+                HOW TO PARTICIPATE & QUALIFY
+              </h2>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              {[
+                {
+                  step: 1,
+                  title: 'Select An Arcade Game',
+                  desc: 'Play any of the 4 arcade titles in browser on desktop or mobile.',
+                },
+                {
+                  step: 2,
+                  title: 'Authenticate Session',
+                  desc: 'Sign in to ensure scores are submitted with server-backed identity.',
+                },
+                {
+                  step: 3,
+                  title: 'Pass Anti-Cheat Audit',
+                  desc: 'Run trajectories are strictly verified by backend edge routines.',
+                },
+                {
+                  step: 4,
+                  title: 'Reach Top 3 Podium',
+                  desc: 'Compete during active tournament brackets to secure winning ranks.',
+                },
+                {
+                  step: 5,
+                  title: 'Receive $PINN Transfer',
+                  desc: 'Prizes are manually settled to verified Solana addresses on-chain.',
+                },
+              ].map((item) => (
+                <div
+                  key={item.step}
+                  className="p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="w-8 h-8 rounded-xl bg-gold-gradient text-black font-black text-xs flex items-center justify-center mb-3">
+                      0{item.step}
+                    </div>
+                    <h3 className="font-bold text-white text-sm mb-1 uppercase font-serif">
+                      {item.title}
+                    </h3>
+                    <p className="text-xs text-zinc-400 leading-relaxed">{item.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 pt-6 border-t border-zinc-900 grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800">
+                <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <ShieldAlert className="w-4 h-4 text-amber-400" />
+                  <span>Fair Play & Anti-Cheat Requirements</span>
+                </h4>
+                <ul className="space-y-1.5 text-xs text-zinc-400 list-disc list-inside">
+                  <li>Automated botting, memory injectors, and speed hacks result in immediate disqualification.</li>
+                  <li>Replayed session tokens are rejected automatically.</li>
+                  <li>Only verified scores count toward tournament rankings and prizes.</li>
+                </ul>
               </div>
-              <button
-                type="submit"
-                className="px-6 py-3 rounded-xl bg-gold-gradient text-black font-bold text-xs uppercase tracking-wider hover:opacity-95 transition-opacity flex items-center justify-center gap-2 cursor-pointer shrink-0"
-              >
-                <Search className="w-4 h-4" />
-                <span>OPEN ON SOLSCAN</span>
-              </button>
-            </form>
-          </div>
 
-          <div className="mt-4 p-4 rounded-xl bg-zinc-900/40 border border-zinc-800 text-xs text-zinc-400 flex items-start gap-2">
-            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-            <span>
-              <strong>Zero-Trust Security:</strong> PINN Arcade will NEVER initiate token transfers automatically, request private keys or seed phrases, or connect to wallets without consent.
-            </span>
-          </div>
-        </div>
-      </section>
-
-      {/* SECTION F: REWARD RULES & DISCLAIMER */}
-      <section className="w-full mb-12">
-        <div className="p-6 sm:p-8 rounded-3xl bg-zinc-950 border border-zinc-850 shadow-xl space-y-4">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="w-6 h-6 rounded-md bg-zinc-800 text-amber-400 font-bold text-xs flex items-center justify-center">
-              F
-            </span>
-            <h2 className="text-xl sm:text-2xl font-bold text-white uppercase font-serif tracking-tight">
-              REWARD RULES & COMPLIANCE
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-zinc-300">
-            <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800">
-              <strong className="text-amber-400 block mb-1 uppercase font-mono-arcade">Eligibility Terms</strong>
-              Holding $PINN tokens does not guarantee rewards. Participation in free arcade games does not guarantee financial returns.
-            </div>
-            <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800">
-              <strong className="text-amber-400 block mb-1 uppercase font-mono-arcade">Anti-Cheating Policy</strong>
-              All submitted scores are subject to review. Memory injection, modified client code, and artificial speed multipliers will result in permanent disqualification.
-            </div>
-            <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800">
-              <strong className="text-amber-400 block mb-1 uppercase font-mono-arcade">Market Risk</strong>
-              Cryptocurrency prices can fluctuate substantially. Digital token valuations are volatile and unregulated in many jurisdictions.
-            </div>
-            <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800">
-              <strong className="text-amber-400 block mb-1 uppercase font-mono-arcade">No Investment Contracts</strong>
-              Competitions represent promotional community gaming tournaments, not financial securities, investments, or profit guarantees.
+              <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800">
+                <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Info className="w-4 h-4 text-amber-400" />
+                  <span>Prize Distribution & Non-Custodial Terms</span>
+                </h4>
+                <ul className="space-y-1.5 text-xs text-zinc-400 list-disc list-inside">
+                  <li>Tournament prizes are distributed manually by project administrators.</li>
+                  <li>The platform does not custody private keys or execute automated contract deductions.</li>
+                  <li>All payment records are publicly verifiable via Solana transaction hashes.</li>
+                </ul>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
-
-      {/* MANDATORY TELEGRAM SECTION (Requirement 9.E) */}
-      <section className="w-full">
-        <div className="p-8 sm:p-12 rounded-3xl bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 border border-gold-glow text-center flex flex-col items-center shadow-2xl">
-          <div className="w-14 h-14 rounded-2xl bg-gold-gradient flex items-center justify-center text-black mb-4 shadow-lg shadow-amber-500/20">
-            <Send className="w-7 h-7 fill-current" />
-          </div>
-
-          <h2 className="text-2xl sm:text-4xl font-black text-white font-serif uppercase tracking-tight mb-3">
-            PINN COMMUNITY ANNOUNCEMENTS
-          </h2>
-
-          <p className="text-sm sm:text-base text-zinc-300 max-w-xl mb-8 leading-relaxed">
-            Follow the official Telegram group for published competition rules, verified winner announcements, reward updates, and gaming news.
-          </p>
-
-          <a
-            href={PINN_CONFIG.OFFICIAL_TELEGRAM_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-8 py-4 rounded-xl bg-gold-gradient text-black font-extrabold text-sm uppercase tracking-widest hover:opacity-95 shadow-lg shadow-amber-500/25 flex items-center gap-2.5 cursor-pointer"
-          >
-            <Send className="w-4 h-4 fill-current" />
-            <span>JOIN THE PINN COMMUNITY</span>
-          </a>
-
-          <span className="text-xs text-zinc-400 mt-4 font-mono-arcade">
-            Official Community: {PINN_CONFIG.OFFICIAL_TELEGRAM_URL}
-          </span>
-        </div>
-      </section>
+        </section>
+      )}
     </div>
   );
 };

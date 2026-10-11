@@ -28,12 +28,14 @@ class WalletService {
 
   constructor() {
     // Check if previously connected in localStorage
-    const saved = localStorage.getItem('pinn_connected_wallet');
-    if (saved) {
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
       try {
-        const parsed = JSON.parse(saved);
-        if (parsed.address) {
-          this.state = parsed;
+        const saved = localStorage.getItem('pinn_connected_wallet');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.address) {
+            this.state = parsed;
+          }
         }
       } catch {
         // ignore
@@ -51,10 +53,12 @@ class WalletService {
 
   private notify() {
     this.listeners.forEach(l => l(this.state));
-    if (this.state.isConnected && this.state.address) {
-      localStorage.setItem('pinn_connected_wallet', JSON.stringify(this.state));
-    } else {
-      localStorage.removeItem('pinn_connected_wallet');
+    if (typeof localStorage !== 'undefined') {
+      if (this.state.isConnected && this.state.address) {
+        localStorage.setItem('pinn_connected_wallet', JSON.stringify(this.state));
+      } else {
+        localStorage.removeItem('pinn_connected_wallet');
+      }
     }
   }
 

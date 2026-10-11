@@ -74,10 +74,34 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
               </li>
               <li>
                 <button
+                  onClick={() => onNavigate('games')}
+                  className="hover:text-amber-400 transition-colors text-left cursor-pointer"
+                >
+                  Games Catalog (4 Games)
+                </button>
+              </li>
+              <li>
+                <button
                   onClick={() => onNavigate('play')}
                   className="hover:text-amber-400 transition-colors text-left cursor-pointer"
                 >
                   Play PINN Coin Rush
+                </button>
+              </li>
+              <li>
+                <button
+                  onClick={() => onNavigate('token')}
+                  className="hover:text-amber-400 transition-colors text-left cursor-pointer"
+                >
+                  $PINN Token Information
+                </button>
+              </li>
+              <li>
+                <button
+                  onClick={() => onNavigate('tournaments')}
+                  className="hover:text-amber-400 transition-colors text-left cursor-pointer"
+                >
+                  Tournaments & Seasons
                 </button>
               </li>
               <li>
@@ -94,6 +118,14 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
                   className="hover:text-amber-400 transition-colors text-left cursor-pointer"
                 >
                   Community Rewards
+                </button>
+              </li>
+              <li>
+                <button
+                  onClick={() => onNavigate('admin')}
+                  className="hover:text-amber-400 transition-colors text-left cursor-pointer text-zinc-500"
+                >
+                  Admin Portal (Restricted)
                 </button>
               </li>
               <li>

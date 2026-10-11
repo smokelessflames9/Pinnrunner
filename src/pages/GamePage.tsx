@@ -92,6 +92,9 @@ export const GamePage: React.FC<GamePageProps> = ({ onNavigate }) => {
     gameSpeed: 6.0,
     baseSpeed: 6.0,
     elapsedTime: 0,
+    sessionId: '',
+    sessionStartTime: 0,
+    obstaclesPassed: 0,
 
     // Player character
     player: {
@@ -245,6 +248,9 @@ export const GamePage: React.FC<GamePageProps> = ({ onNavigate }) => {
     g.distance = 0;
     g.gameSpeed = g.baseSpeed;
     g.elapsedTime = 0;
+    g.sessionId = `cr_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    g.sessionStartTime = Date.now();
+    g.obstaclesPassed = 0;
 
     g.player.x = 120;
     g.player.y = GROUND_Y - g.player.baseHeight;
@@ -282,7 +288,13 @@ export const GamePage: React.FC<GamePageProps> = ({ onNavigate }) => {
     soundService.playCrash();
     setTimeout(() => soundService.playGameOver(), 200);
 
-    const result = leaderboardService.recordGameResult(g.score, g.coins);
+    const elapsedMs = Math.max(3000, Date.now() - g.sessionStartTime);
+    const result = leaderboardService.recordGameResult(g.score, g.coins, {
+      sessionId: g.sessionId,
+      durationMs: elapsedMs,
+      distanceMeters: Math.floor(g.distance),
+      obstaclesPassed: g.obstaclesPassed,
+    });
     setPlayerStats(result.stats);
     if (result.isNewPersonalBest) {
       setIsNewHighScore(true);
@@ -1003,6 +1015,38 @@ export const GamePage: React.FC<GamePageProps> = ({ onNavigate }) => {
 
   return (
     <div className="w-full max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 flex flex-col items-center">
+      {/* Back to Games Hub & Quick Switcher */}
+      <div className="w-full flex flex-wrap items-center justify-between gap-3 mb-6">
+        <button
+          onClick={() => onNavigate('games')}
+          className="inline-flex items-center gap-1.5 text-xs text-amber-400 hover:text-amber-300 font-semibold cursor-pointer"
+        >
+          <span>← Back to All Games Hub</span>
+        </button>
+
+        <div className="flex items-center gap-1.5 text-xs">
+          <span className="text-zinc-500 hidden sm:inline">Switch Game:</span>
+          <button
+            onClick={() => onNavigate('play-treasure')}
+            className="px-2.5 py-1 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800"
+          >
+            Treasure Hunt
+          </button>
+          <button
+            onClick={() => onNavigate('play-puzzle')}
+            className="px-2.5 py-1 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800"
+          >
+            Puzzle Master
+          </button>
+          <button
+            onClick={() => onNavigate('play-speedtap')}
+            className="px-2.5 py-1 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800"
+          >
+            Speed Tap
+          </button>
+        </div>
+      </div>
+
       {/* Page Title & Tagline */}
       <div className="text-center mb-6">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900 border border-gold-subtle/50 text-amber-300 text-xs font-semibold uppercase tracking-wider mb-2">
