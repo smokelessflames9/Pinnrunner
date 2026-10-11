@@ -47,6 +47,7 @@ import { adminService } from '../services/adminService';
 import { tournamentService } from '../services/tournamentService';
 import { testSupabaseConnection, getCurrentUser, supabase } from '../services/supabaseClient';
 import { PINN_CONFIG } from '../config/pinnConfig';
+import { AdminPortal, AdminAuthContext } from '../components/AdminPortal';
 
 interface AdminDashboardPageProps {
   onNavigate: (page: PageNav) => void;
@@ -463,70 +464,48 @@ $$;`;
     setTimeout(() => setCopiedMigration(false), 3000);
   };
 
-  if (checkingAuth) {
-    return (
-      <div className="w-full min-h-[60vh] flex flex-col items-center justify-center p-8">
-        <RefreshCw className="w-8 h-8 text-amber-400 animate-spin mb-4" />
-        <h2 className="text-lg font-bold text-white uppercase tracking-wider font-serif">
-          Verifying Server Authorization...
-        </h2>
-        <p className="text-xs text-zinc-400 mt-1">
-          Validating administrator credentials against database role table.
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col">
-      {/* Top Header & Breadcrumb */}
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-8 pb-6 border-b border-gold-subtle/30">
-        <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900 border border-gold-subtle/50 text-amber-300 text-xs font-semibold uppercase tracking-wider mb-2">
-            <Lock className="w-3.5 h-3.5 text-amber-400" />
-            <span>Server-Verified Administrator Portal</span>
-          </div>
-          <h1 className="text-2xl sm:text-4xl font-black text-white font-serif uppercase tracking-tight">
-            ADMIN DASHBOARD
-          </h1>
-          <p className="text-xs sm:text-sm text-zinc-400 mt-1">
-            Tournament operations, anti-cheat score review, and on-chain $PINN reward management.
-          </p>
-        </div>
-
-        {/* Admin Identity Status Pill */}
-        <div className="flex items-center gap-3">
-          {adminStatus?.isAdmin ? (
-            <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs font-bold">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>Admin Verified: {currentUserEmail || adminStatus.userId?.slice(0, 8)}</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-300 text-xs font-bold">
-                <AlertCircle className="w-4 h-4 text-amber-400" />
-                <span>Simulation / Limited Preview Mode</span>
+    <AdminPortal onOpenAuthModal={onOpenAuthModal} onNavigate={onNavigate}>
+      {(adminContext: AdminAuthContext) => (
+        <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col">
+          {/* Top Header & Breadcrumb */}
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-8 pb-6 border-b border-gold-subtle/30">
+            <div>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900 border border-gold-subtle/50 text-amber-300 text-xs font-semibold uppercase tracking-wider mb-2">
+                <Lock className="w-3.5 h-3.5 text-amber-400" />
+                <span>Server-Verified Administrator Portal</span>
               </div>
-              {onOpenAuthModal && (
-                <button
-                  onClick={onOpenAuthModal}
-                  className="px-3 py-1.5 rounded-xl bg-gold-gradient text-black font-extrabold text-xs uppercase tracking-wider shadow-md hover:scale-105 cursor-pointer"
-                >
-                  Admin Sign In
-                </button>
-              )}
+              <h1 className="text-2xl sm:text-4xl font-black text-white font-serif uppercase tracking-tight">
+                ADMIN DASHBOARD
+              </h1>
+              <p className="text-xs sm:text-sm text-zinc-400 mt-1">
+                Tournament operations, anti-cheat score review, and on-chain $PINN reward management.
+              </p>
             </div>
-          )}
 
-          <button
-            onClick={refreshAllData}
-            title="Refresh All Data"
-            className="p-2.5 rounded-xl bg-zinc-900 border border-gold-subtle/30 text-zinc-300 hover:text-amber-400 cursor-pointer transition-colors"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
+            {/* Admin Identity Status Pill */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2.5 px-4 py-2 rounded-xl bg-emerald-950/60 border border-emerald-500/50 text-emerald-300 text-xs font-bold shadow-lg shadow-emerald-950/50 backdrop-blur-sm">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>Admin Verified: {adminContext.email || currentUserEmail || adminContext.userId.slice(0, 8)}</span>
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-[10px] uppercase font-mono tracking-wider ml-1">
+                  {adminContext.role}
+                </span>
+              </div>
+
+              <button
+                onClick={refreshAllData}
+                title="Refresh All Data"
+                className="p-2.5 rounded-xl bg-zinc-900 border border-gold-subtle/30 text-zinc-300 hover:text-amber-400 cursor-pointer transition-colors"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
 
       {/* Global Alerts */}
       {actionSuccess && (
@@ -1751,6 +1730,8 @@ $$;`;
           </div>
         </div>
       )}
-    </div>
+        </div>
+      )}
+    </AdminPortal>
   );
 };

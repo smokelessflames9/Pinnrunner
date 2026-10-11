@@ -20,6 +20,7 @@ const ADMIN_EMAIL_ALLOWLIST = new Set([
   'admin@pinn.io',
   'security@pinn.io',
   'montegobay@pinnarcade.com',
+  'thomassean538@gmail.com',
 ]);
 
 // Initial demo score submissions illustrating pending, verified, and suspicious anti-cheat flags
