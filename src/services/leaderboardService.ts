@@ -1,4 +1,4 @@
-import { LeaderboardEntry, PlayerStats } from '../types';
+import { LeaderboardEntry, PlayerStats, ScoreRecord } from '../types';
 import {
   submitScoreSecurely,
   fetchTopScoresFromSupabase,
@@ -7,6 +7,7 @@ import {
   getCurrentUser,
 } from './supabaseClient';
 import { walletService } from './walletService';
+import { adminService } from './adminService';
 
 const STATS_KEY = 'pinn_arcade_player_stats';
 const LOCAL_SCORES_KEY = 'pinn_arcade_recent_scores';
@@ -267,6 +268,23 @@ class LeaderboardService {
     const sessionId = extraTelemetry?.sessionId || `cr_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const durationMs = extraTelemetry?.durationMs || Math.max(3500, Math.floor(score * 15));
 
+    // Ingest into admin moderation queue
+    const liveScoreRecord: ScoreRecord = {
+      id: `sc-live-${Date.now()}`,
+      userId: walletAddress || 'usr-local',
+      playerName: current.displayName,
+      gameId: 'coin-rush',
+      score,
+      coins,
+      durationMs,
+      sessionId,
+      status: 'pending',
+      validationReason: 'Player live run; awaiting verification.',
+      walletAddress,
+      createdAt: new Date().toISOString(),
+    };
+    adminService.ingestScoreSubmission(liveScoreRecord);
+
     submitScoreSecurely({
       gameId: 'coin-rush',
       score,
@@ -284,6 +302,15 @@ class LeaderboardService {
       .then((res) => {
         this.lastSubmissionResult = res;
         this.submissionListeners.forEach((l) => l(res));
+        if (res.status === 'verified') {
+          liveScoreRecord.status = 'verified';
+          liveScoreRecord.validationReason = res.message || 'Server verified run.';
+          adminService.ingestScoreSubmission(liveScoreRecord);
+        } else if (res.status === 'rejected') {
+          liveScoreRecord.status = 'rejected';
+          liveScoreRecord.validationReason = res.message || 'Server anti-cheat rejection.';
+          adminService.ingestScoreSubmission(liveScoreRecord);
+        }
       })
       .catch((err) => {
         console.warn('Secure submission warning:', err);
@@ -432,6 +459,23 @@ class LeaderboardService {
         const sessionId = options?.sessionId || `${gameId}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
         const durationMs = options?.durationMs || 30000;
 
+        // Ingest into admin moderation queue
+        const liveScoreRecord: ScoreRecord = {
+          id: `sc-live-${Date.now()}`,
+          userId: walletAddress || 'usr-local',
+          playerName: stats.displayName,
+          gameId,
+          score,
+          coins: options?.coins || 0,
+          durationMs,
+          sessionId,
+          status: 'pending',
+          validationReason: 'Player live run; awaiting verification.',
+          walletAddress,
+          createdAt: new Date().toISOString(),
+        };
+        adminService.ingestScoreSubmission(liveScoreRecord);
+
         submitScoreSecurely({
           gameId,
           score,
@@ -445,6 +489,15 @@ class LeaderboardService {
           .then((res) => {
             this.lastSubmissionResult = res;
             this.submissionListeners.forEach((l) => l(res));
+            if (res.status === 'verified') {
+              liveScoreRecord.status = 'verified';
+              liveScoreRecord.validationReason = res.message || 'Server verified run.';
+              adminService.ingestScoreSubmission(liveScoreRecord);
+            } else if (res.status === 'rejected') {
+              liveScoreRecord.status = 'rejected';
+              liveScoreRecord.validationReason = res.message || 'Server anti-cheat rejection.';
+              adminService.ingestScoreSubmission(liveScoreRecord);
+            }
           })
           .catch((err) => {
             console.warn('Secure submission warning:', err);

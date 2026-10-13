@@ -3,6 +3,61 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <script>
+      (function() {
+        // Only apply in development / AI Studio preview environment
+        var isPreviewEnv = typeof window !== 'undefined' && (
+          window.location.hostname.indexOf('run.app') !== -1 ||
+          window.location.hostname === 'localhost' ||
+          window.location.hostname === '127.0.0.1'
+        );
+        if (!isPreviewEnv) return;
+
+        // In AI Studio preview environment, HMR WebSocket is disabled.
+        // Intercept ONLY Vite HMR client connection so @vite/client does not throw.
+        // Genuine application WebSockets (Solana RPC, Supabase Realtime) are untouched.
+        var OrigWebSocket = window.WebSocket;
+        if (typeof OrigWebSocket !== 'undefined') {
+          window.WebSocket = function(url, protocols) {
+            var isViteHmr = (protocols === 'vite-hmr' || (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1));
+            if (isViteHmr) {
+              var target = new EventTarget();
+              target.url = url;
+              target.protocol = 'vite-hmr';
+              target.readyState = 1; // WebSocket.OPEN
+              target.send = function() {};
+              target.close = function() {
+                target.readyState = 3;
+                if (target.onclose) target.onclose(new Event('close'));
+                target.dispatchEvent(new Event('close'));
+              };
+              setTimeout(function() {
+                if (target.onopen) target.onopen(new Event('open'));
+                target.dispatchEvent(new Event('open'));
+              }, 0);
+              return target;
+            }
+            return new OrigWebSocket(url, protocols);
+          };
+          window.WebSocket.prototype = OrigWebSocket.prototype;
+          window.WebSocket.CONNECTING = OrigWebSocket.CONNECTING;
+          window.WebSocket.OPEN = OrigWebSocket.OPEN;
+          window.WebSocket.CLOSING = OrigWebSocket.CLOSING;
+          window.WebSocket.CLOSED = OrigWebSocket.CLOSED;
+        }
+
+        // Narrowly handle ONLY the specific @vite/client disconnection rejection.
+        // Real errors (Supabase, Solana, gameplay) are NEVER suppressed.
+        window.addEventListener('unhandledrejection', function(event) {
+          var reason = event && event.reason;
+          var msg = reason && (reason.message || String(reason));
+          var stack = reason && (reason.stack || '');
+          if (msg === 'WebSocket closed without opened.' && stack.indexOf('@vite/client') !== -1) {
+            event.preventDefault();
+          }
+        });
+      })();
+    </script>
     <title>PINN Arcade | Play. Compete. Earn PINN.</title>
     <meta name="description" content="Solana meme coin gaming ecosystem connected to The Pinnacle Montego Bay ($PINN). Play PINN Coin Rush, climb leaderboards, and join community competitions." />
     <meta property="og:title" content="PINN Arcade | Play. Compete. Earn PINN." />

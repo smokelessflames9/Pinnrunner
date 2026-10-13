@@ -194,8 +194,41 @@ const DEMO_RANKINGS: Record<string, TournamentRankingEntry[]> = {
   ],
 };
 
+const TOURNAMENTS_STORAGE_KEY = 'pinn_local_tournaments';
+
 class TournamentService {
   private localTournaments: Tournament[] = [...INITIAL_TOURNAMENTS];
+
+  constructor() {
+    this.loadFromStorage();
+  }
+
+  private loadFromStorage() {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+    try {
+      const saved = localStorage.getItem(TOURNAMENTS_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Merge saved with initial tournaments to preserve any new defaults
+          const savedIds = new Set(parsed.map((p) => p.id));
+          const missingDefaults = INITIAL_TOURNAMENTS.filter((d) => !savedIds.has(d.id));
+          this.localTournaments = [...parsed, ...missingDefaults];
+        }
+      }
+    } catch (e) {
+      console.warn('Could not load tournaments from localStorage:', e);
+    }
+  }
+
+  private saveToStorage() {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+    try {
+      localStorage.setItem(TOURNAMENTS_STORAGE_KEY, JSON.stringify(this.localTournaments));
+    } catch (e) {
+      console.warn('Could not save tournaments to localStorage:', e);
+    }
+  }
 
   /**
    * Fetch all tournaments from Supabase, falling back to local storage / memory
@@ -426,6 +459,7 @@ class TournamentService {
           createdBy: user.id,
         };
         this.localTournaments.unshift(newTourn);
+        this.saveToStorage();
         return { success: true, tournament: newTourn };
       }
 
@@ -465,6 +499,7 @@ class TournamentService {
           createdBy: insertData.created_by,
         };
         this.localTournaments.unshift(newTourn);
+        this.saveToStorage();
         return { success: true, tournament: newTourn };
       }
 
@@ -477,6 +512,7 @@ class TournamentService {
         createdBy: user.id,
       };
       this.localTournaments.unshift(newTourn);
+      this.saveToStorage();
       return { success: true, tournament: newTourn };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -526,6 +562,7 @@ class TournamentService {
     const item = this.localTournaments.find((t) => t.id === id);
     if (item) {
       item.status = status;
+      this.saveToStorage();
     }
   }
 }

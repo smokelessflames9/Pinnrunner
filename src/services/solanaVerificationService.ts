@@ -231,15 +231,12 @@ export class SolanaVerificationService {
           if (info.mint === this.OFFICIAL_MINT) {
             matchedMint = true;
           }
-          if (
-            info.destination === expectedWallet ||
-            info.owner === expectedWallet ||
-            info.authority === expectedWallet
-          ) {
+          // The recipient must match the actual recipient wallet owner (post.owner or instruction owner)
+          if (info.owner && info.owner.toLowerCase() === expectedWallet.toLowerCase()) {
             recipientMatched = true;
           }
           const amt = info.tokenAmount?.uiAmount || parseFloat(info.amount) || 0;
-          if (amt > 0 && !amountFound) {
+          if (amt > 0 && !amountFound && recipientMatched) {
             amountFound = amt;
           }
         }
@@ -255,8 +252,8 @@ export class SolanaVerificationService {
       };
     }
 
-    // Destination wallet check
-    if (!recipientMatched && expectedWallet.length > 20) {
+    // Destination wallet check (must match winner's wallet owner)
+    if (!recipientMatched) {
       return {
         verified: false,
         signature: cleanSig,
@@ -264,13 +261,13 @@ export class SolanaVerificationService {
       };
     }
 
-    // Amount check (allow small precision differences)
-    if (expectedAmount > 0 && amountFound > 0 && amountFound < expectedAmount * 0.99) {
+    // Amount check: Transferred amount must strictly meet or exceed approved reward amount
+    if (expectedAmount > 0 && (amountFound <= 0 || amountFound < expectedAmount)) {
       return {
         verified: false,
         signature: cleanSig,
         amountTransferred: amountFound,
-        error: `INSUFFICIENT AMOUNT: Transferred ${amountFound.toLocaleString()} $PINN, which is less than expected reward (${expectedAmount.toLocaleString()} $PINN).`,
+        error: `INSUFFICIENT AMOUNT: Transferred ${amountFound.toLocaleString()} $PINN, which is less than approved reward (${expectedAmount.toLocaleString()} $PINN).`,
       };
     }
 
@@ -284,8 +281,8 @@ export class SolanaVerificationService {
       blockTime: rpcResponse.blockTime,
       tokenMint: this.OFFICIAL_MINT,
       destinationWallet: expectedWallet,
-      amountTransferred: amountFound || expectedAmount,
-      amountTransferredFormatted: `${(amountFound || expectedAmount).toLocaleString()} $PINN`,
+      amountTransferred: amountFound,
+      amountTransferredFormatted: `${amountFound.toLocaleString()} $PINN`,
       feeLamports: rpcResponse.meta?.fee,
       statusText: 'CONFIRMED ON SOLANA MAINNET',
     };

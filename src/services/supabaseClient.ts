@@ -170,11 +170,22 @@ export async function submitScoreSecurely(
   const token = session?.access_token;
 
   if (!token) {
+    // Unauthenticated or Solana-wallet-only arcade run: persist to public.game_scores for admin moderation queue
+    const gsRes = await submitScoreToSupabase({
+      gameId: payload.gameId,
+      playerName: payload.playerName || 'Player',
+      walletAddress: payload.walletAddress || null,
+      score: payload.score,
+      coins: payload.coins || 0,
+    });
+
     return {
-      success: false,
-      status: 'rejected',
-      message: 'Player authentication is required to record a verified leaderboard score.',
-      error: 'AUTH_REQUIRED',
+      success: gsRes.success,
+      status: 'pending',
+      message: gsRes.success
+        ? 'Gameplay score submitted to Supabase (public.game_scores) and queued for admin review.'
+        : `Database submission note: ${gsRes.error}`,
+      error: gsRes.error,
     };
   }
 
@@ -207,9 +218,19 @@ export async function submitScoreSecurely(
       }
     }
 
-    // If edge function returned 404 (not yet deployed to cloud), run direct secure insert with 'pending' status
-    if (error && error.context?.status === 404) {
-      console.warn('Edge function submit-score 404 (not yet deployed). Recording pending score...');
+    // If edge function returned 404 or is not yet deployed, run direct secure insert with 'pending' status
+    const isMissingFunction =
+      Boolean(error) &&
+      ((error as any).context?.status === 404 ||
+        (error as any).status === 404 ||
+        error.message?.includes('404') ||
+        error.message?.includes('NOT_FOUND') ||
+        error.message?.includes('not found') ||
+        error.message?.includes('non-2xx') ||
+        error.message?.includes('Failed to send'));
+
+    if (error && isMissingFunction) {
+      console.warn('Edge function submit-score not deployed. Recording pending score in database...');
       return await submitPendingFallback(payload, session.user.id);
     }
 

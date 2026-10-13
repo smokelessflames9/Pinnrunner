@@ -202,10 +202,77 @@ const INITIAL_PAYMENTS: PaymentRecord[] = [
   },
 ];
 
+const ADMIN_STORAGE_KEYS = {
+  SCORES: 'pinn_admin_local_scores',
+  REWARDS: 'pinn_admin_local_rewards',
+  PAYMENTS: 'pinn_admin_local_payments',
+};
+
 class AdminService {
   private localScores: ScoreRecord[] = [...INITIAL_DEMO_SCORES];
   private localRewards: RewardRequest[] = [...INITIAL_REWARDS];
   private localPayments: PaymentRecord[] = [...INITIAL_PAYMENTS];
+
+  constructor() {
+    this.loadFromStorage();
+  }
+
+  private loadFromStorage() {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+    try {
+      const s = localStorage.getItem(ADMIN_STORAGE_KEYS.SCORES);
+      if (s) {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          this.localScores = parsed;
+        }
+      }
+
+      const r = localStorage.getItem(ADMIN_STORAGE_KEYS.REWARDS);
+      if (r) {
+        const parsed = JSON.parse(r);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          this.localRewards = parsed;
+        }
+      }
+
+      const p = localStorage.getItem(ADMIN_STORAGE_KEYS.PAYMENTS);
+      if (p) {
+        const parsed = JSON.parse(p);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          this.localPayments = parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Could not load admin state from localStorage:', e);
+    }
+  }
+
+  private saveToStorage() {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+    try {
+      localStorage.setItem(ADMIN_STORAGE_KEYS.SCORES, JSON.stringify(this.localScores));
+      localStorage.setItem(ADMIN_STORAGE_KEYS.REWARDS, JSON.stringify(this.localRewards));
+      localStorage.setItem(ADMIN_STORAGE_KEYS.PAYMENTS, JSON.stringify(this.localPayments));
+    } catch (e) {
+      console.warn('Could not save admin state to localStorage:', e);
+    }
+  }
+
+  /**
+   * Ingest a player score submission into local moderation cache
+   */
+  public ingestScoreSubmission(scoreRecord: ScoreRecord) {
+    const existingIdx = this.localScores.findIndex(
+      (s) => s.id === scoreRecord.id || s.sessionId === scoreRecord.sessionId
+    );
+    if (existingIdx >= 0) {
+      this.localScores[existingIdx] = scoreRecord;
+    } else {
+      this.localScores.unshift(scoreRecord);
+    }
+    this.saveToStorage();
+  }
 
   /**
    * Securely check if current user is an authenticated administrator.
@@ -321,37 +388,85 @@ class AdminService {
     }
 
     try {
-      let query = supabase.from('scores').select('*').order('created_at', { ascending: false });
-
+      // 1. Fetch from authoritative public.scores table
+      let scoreQuery = supabase.from('scores').select('*').order('created_at', { ascending: false }).limit(100);
       if (filter !== 'all') {
-        query = query.eq('status', filter);
+        scoreQuery = scoreQuery.eq('status', filter);
+      }
+      const { data: scoresData } = await scoreQuery;
+
+      // 2. Fetch from shared public.game_scores table (authoritative storage for arcade gameplay scores)
+      const { data: gameScoresData } = await supabase
+        .from('game_scores')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      const remoteScores: ScoreRecord[] = [];
+      const remoteIds = new Set<string>();
+
+      // Ingest public.scores rows
+      if (scoresData && scoresData.length > 0) {
+        for (const d of scoresData) {
+          remoteIds.add(d.id);
+          remoteScores.push({
+            id: d.id,
+            userId: d.user_id,
+            playerName: d.player_name || 'Anonymous',
+            gameId: d.game_id as GameId,
+            score: d.score,
+            coins: d.coins || 0,
+            durationMs: d.duration_ms || 0,
+            sessionId: d.session_id,
+            status: d.status as ScoreStatus,
+            validationReason: d.validation_reason,
+            walletAddress: d.wallet_address,
+            createdAt: d.created_at,
+            tournamentId: d.tournament_id,
+          });
+        }
       }
 
-      const { data, error } = await query.limit(100);
+      // Ingest public.game_scores rows (persisted arcade gameplay runs)
+      if (gameScoresData && gameScoresData.length > 0) {
+        for (const gs of gameScoresData) {
+          if (!remoteIds.has(gs.id)) {
+            remoteIds.add(gs.id);
+            // Check if there is a local review override from admin review
+            const localOverride = this.localScores.find((l) => l.id === gs.id);
+            const status: ScoreStatus = localOverride?.status || 'pending';
+            const validationReason =
+              localOverride?.validationReason ||
+              'Player gameplay run recorded in Supabase public.game_scores awaiting review.';
 
-      if (!error && data && data.length > 0) {
-        const mapped: ScoreRecord[] = data.map((d) => ({
-          id: d.id,
-          userId: d.user_id,
-          playerName: d.player_name || 'Anonymous',
-          gameId: d.game_id as GameId,
-          score: d.score,
-          coins: d.coins || 0,
-          durationMs: d.duration_ms || 0,
-          sessionId: d.session_id,
-          status: d.status as ScoreStatus,
-          validationReason: d.validation_reason,
-          walletAddress: d.wallet_address,
-          createdAt: d.created_at,
-          tournamentId: d.tournament_id,
-        }));
-
-        const remoteIds = new Set(mapped.map((m) => m.id));
-        const merged = [...mapped, ...this.localScores.filter((s) => !remoteIds.has(s.id))];
-        return filter === 'all' ? merged : merged.filter((s) => s.status === filter);
+            remoteScores.push({
+              id: gs.id,
+              userId: gs.wallet_address || 'usr-arcade',
+              playerName: gs.player_name || 'Anonymous Player',
+              gameId: (gs.game_id as GameId) || 'coin-rush',
+              score: gs.score,
+              coins: gs.coins || 0,
+              durationMs: 0,
+              sessionId: `gs_${gs.id}`,
+              status,
+              validationReason,
+              walletAddress: gs.wallet_address,
+              createdAt: gs.created_at,
+            });
+          }
+        }
       }
 
-      return filter === 'all' ? this.localScores : this.localScores.filter((s) => s.status === filter);
+      // Sort remote scores by created_at descending
+      remoteScores.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      // Merge with non-conflicting baseline demo scores
+      const merged = [
+        ...remoteScores,
+        ...this.localScores.filter((s) => !remoteIds.has(s.id)),
+      ];
+
+      return filter === 'all' ? merged : merged.filter((s) => s.status === filter);
     } catch {
       return filter === 'all' ? this.localScores : this.localScores.filter((s) => s.status === filter);
     }
@@ -421,6 +536,7 @@ class AdminService {
     if (item) {
       item.status = status;
       item.validationReason = reason;
+      this.saveToStorage();
     }
   }
 
@@ -678,6 +794,7 @@ class AdminService {
         createdAt: new Date().toISOString(),
       };
       this.localPayments.unshift(newPayment);
+      this.saveToStorage();
 
       return { success: true, reward: newReward };
     } catch (err: unknown) {
@@ -717,6 +834,7 @@ class AdminService {
         item.status = status;
         if (adminNotes) item.adminNotes = adminNotes;
         item.updatedAt = new Date().toISOString();
+        this.saveToStorage();
       }
 
       return { success: true };
@@ -781,7 +899,60 @@ class AdminService {
       };
     }
 
-    // 4. On-chain verification
+    // 4. Server-Side On-Chain Verification (delegates to server-side endpoint in browser)
+    if (typeof window !== 'undefined') {
+      try {
+        const session = (await supabase.auth.getSession()).data.session;
+        if (!session?.access_token) {
+          return {
+            success: false,
+            error: 'AUTHENTICATION REQUIRED: Active Supabase administrator session required to record payments.',
+          };
+        }
+        const res = await fetch('/api/payments/verify-and-record', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+            'x-admin-role': adminCheck.role || 'admin',
+          },
+          body: JSON.stringify({
+            rewardRequestId: reward.id,
+            txSignature: cleanSig,
+            note: params.note,
+            expectedWallet: reward.walletAddress,
+            expectedAmount: reward.rewardAmount,
+            playerName: reward.playerName,
+            isSimulationDemo: params.isSimulationDemo,
+            simulateFailedTx: params.simulateFailedTx,
+            simulateWrongMint: params.simulateWrongMint,
+            simulateWrongRecipient: params.simulateWrongRecipient,
+          }),
+        });
+
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success) {
+            reward.status = 'completed';
+            reward.adminNotes = `Paid & Verified: ${cleanSig.slice(0, 8)}... (${new Date().toLocaleDateString()})`;
+            reward.updatedAt = new Date().toISOString();
+            const srvPayment = json.payment as PaymentRecord;
+            this.localPayments.unshift(srvPayment);
+            this.saveToStorage();
+            return { success: true, payment: srvPayment };
+          } else {
+            return { success: false, error: json.error || 'Server rejected payout.' };
+          }
+        } else if (res.status === 400 || res.status === 403 || res.status === 409 || res.status === 422) {
+          const json = await res.json().catch(() => ({}));
+          return { success: false, error: json.error || `Server verification failed (${res.status})` };
+        }
+      } catch (err) {
+        console.warn('Server verification endpoint unavailable, proceeding with verified client-side fallback:', err);
+      }
+    }
+
+    // 4b. Local / Test harness verification fallback
     let verification: any;
     if (params.isSimulationDemo) {
       verification = solanaVerificationService.verifyMockOrSimulation(
@@ -862,6 +1033,7 @@ class AdminService {
     };
 
     this.localPayments.unshift(paymentRecord);
+    this.saveToStorage();
 
     return { success: true, payment: paymentRecord };
   }
