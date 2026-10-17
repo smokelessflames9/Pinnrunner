@@ -381,27 +381,53 @@ class TournamentService {
     }
 
     try {
-      // Find highest score by this user
+      // Find highest score by this user (matching user_id, player_id, or wallet_address)
+      let userRow: any = null;
+
       const { data, error } = await supabase
         .from('scores')
-        .select('score, status, created_at')
-        .eq('user_id', userId)
+        .select('score, status, created_at, player_name, wallet_address')
+        .or(`user_id.eq.${userId},wallet_address.eq.${userId}`)
         .eq('game_id', tournament.gameId)
         .order('score', { ascending: false })
         .limit(1);
 
-      if (error || !data || data.length === 0) {
+      if (!error && data && data.length > 0) {
+        userRow = data[0];
+      } else {
+        // Fallback to game_scores
+        const { data: gsData } = await supabase
+          .from('game_scores')
+          .select('score, created_at, player_name, wallet_address')
+          .ilike('wallet_address', userId)
+          .eq('game_id', tournament.gameId)
+          .order('score', { ascending: false })
+          .limit(1);
+
+        if (gsData && gsData.length > 0) {
+          userRow = {
+            score: gsData[0].score,
+            status: 'pending',
+            created_at: gsData[0].created_at,
+          };
+        }
+      }
+
+      if (!userRow) {
         return null;
       }
 
-      const userRow = data[0];
       const isVerified = userRow.status === 'verified';
 
       // If verified, compute rank
       let rank: number | null = null;
       if (isVerified) {
         const rankings = await this.getTournamentRankings(tournament);
-        const idx = rankings.findIndex((r) => r.playerId === userId);
+        const idx = rankings.findIndex(
+          (r) =>
+            r.playerId === userId ||
+            (r.walletAddress && r.walletAddress.toLowerCase() === userId.toLowerCase())
+        );
         if (idx !== -1) {
           rank = idx + 1;
         }
@@ -411,7 +437,7 @@ class TournamentService {
         score: userRow.score,
         rank,
         isVerified,
-        status: userRow.status,
+        status: userRow.status || 'pending',
       };
     } catch {
       return null;

@@ -510,7 +510,9 @@ export const PinnPuzzleMaster: React.FC<PinnPuzzleMasterProps> = ({
       const finalScore = score + timeBonus;
       setScore(finalScore);
 
-      const elapsedMs = Math.max(5000, Date.now() - quizStartTime.current);
+      const elapsedMs = quizStartTime.current > 0
+        ? Math.max(5000, Date.now() - quizStartTime.current)
+        : Math.max(5000, timeElapsed * 1000);
       const { pb, isNewPb } = leaderboardService.recordGameBest('puzzle-master', finalScore, {
         sessionId: quizSessionId.current,
         durationMs: elapsedMs,

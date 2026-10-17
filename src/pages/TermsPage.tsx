@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldAlert, FileText, Send } from 'lucide-react';
+import { FileText, Send } from 'lucide-react';
 import { PageNav } from '../types';
 import { PINN_CONFIG } from '../config/pinnConfig';
 
@@ -24,13 +24,6 @@ export const TermsPage: React.FC<TermsPageProps> = () => {
       </div>
 
       <div className="bg-zinc-950 border border-gold-subtle/40 rounded-3xl p-6 sm:p-10 space-y-8 text-zinc-300 text-xs sm:text-sm leading-relaxed shadow-xl">
-        {/* Notice */}
-        <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-500/40 text-amber-200/90 flex items-start gap-3">
-          <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-          <div>
-            <strong>Notice of Informal Community Review:</strong> This application has not undergone a formal securities or legal review and has not received an external smart contract security audit. By accessing PINN Arcade, you acknowledge that you are interacting with a community-driven entertainment platform.
-          </div>
-        </div>
 
         <section className="space-y-3">
           <h2 className="text-base font-bold text-white uppercase font-serif tracking-wide">

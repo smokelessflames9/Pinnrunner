@@ -1010,14 +1010,20 @@ export const PinnTreasureHunt: React.FC<PinnTreasureHuntProps> = ({
               Bonus awarded · Next: {LEVELS[currentLevelIdx + 1]?.name}
             </p>
 
-            <div className="grid grid-cols-2 gap-4 max-w-xs w-full bg-zinc-900/90 border border-gold-subtle/50 rounded-xl p-3 mb-6">
+            <div className="grid grid-cols-3 gap-2 max-w-xs w-full bg-zinc-900/90 border border-gold-subtle/50 rounded-xl p-3 mb-6">
               <div>
                 <span className="text-[10px] text-zinc-400 uppercase block font-mono-arcade">Total Score</span>
-                <span className="text-lg font-bold font-mono-arcade text-gold-gradient">{score}</span>
+                <span className="text-base font-bold font-mono-arcade text-gold-gradient">{score}</span>
+              </div>
+              <div className="border-x border-zinc-800">
+                <span className="text-[10px] text-zinc-400 uppercase block font-mono-arcade">Chests</span>
+                <span className="text-base font-bold font-mono-arcade text-emerald-400">{chestsFound} / {totalChestsInLevel}</span>
               </div>
               <div>
-                <span className="text-[10px] text-zinc-400 uppercase block font-mono-arcade">Chests Claimed</span>
-                <span className="text-lg font-bold font-mono-arcade text-emerald-400">{chestsFound} / {totalChestsInLevel}</span>
+                <span className="text-[10px] text-zinc-400 uppercase block font-mono-arcade">Run Time</span>
+                <span className="text-base font-bold font-mono-arcade text-amber-300">
+                  {((sim.current.startTime > 0 ? Date.now() - sim.current.startTime : 0) / 1000).toFixed(1)}s
+                </span>
               </div>
             </div>
 
@@ -1041,9 +1047,17 @@ export const PinnTreasureHunt: React.FC<PinnTreasureHuntProps> = ({
               Watch out for spike traps and patrol crabs!
             </p>
 
-            <div className="p-4 rounded-xl bg-zinc-900 border border-zinc-800 max-w-xs w-full mb-6 text-center">
-              <span className="text-xs text-zinc-400 block font-mono-arcade">Final Island Score</span>
-              <span className="text-2xl font-bold font-mono-arcade text-gold-gradient">{score}</span>
+            <div className="grid grid-cols-2 gap-3 p-4 rounded-xl bg-zinc-900 border border-zinc-800 max-w-xs w-full mb-6 text-center">
+              <div>
+                <span className="text-[10px] text-zinc-400 block font-mono-arcade uppercase">Final Score</span>
+                <span className="text-xl font-bold font-mono-arcade text-gold-gradient">{score}</span>
+              </div>
+              <div className="border-l border-zinc-800">
+                <span className="text-[10px] text-zinc-400 block font-mono-arcade uppercase">Run Time</span>
+                <span className="text-xl font-bold font-mono-arcade text-emerald-400">
+                  {((sim.current.startTime > 0 ? Date.now() - sim.current.startTime : 0) / 1000).toFixed(1)}s
+                </span>
+              </div>
             </div>
 
             <div className="flex gap-3">
@@ -1054,7 +1068,6 @@ export const PinnTreasureHunt: React.FC<PinnTreasureHuntProps> = ({
                 <RotateCcw className="w-4 h-4" />
                 <span>RETRY EXPEDITION</span>
               </button>
-
               {onBackToHub && (
                 <button
                   onClick={onBackToHub}
@@ -1081,9 +1094,17 @@ export const PinnTreasureHunt: React.FC<PinnTreasureHuntProps> = ({
               Congratulations! You have conquered all 10 island levels and claimed The Pinnacle Vault!
             </p>
 
-            <div className="p-4 rounded-xl bg-zinc-900 border border-gold-subtle max-w-xs w-full mb-6">
-              <span className="text-xs text-zinc-400 block font-mono-arcade">Legendary Final Score</span>
-              <span className="text-3xl font-black font-mono-arcade text-gold-gradient">{score}</span>
+            <div className="grid grid-cols-2 gap-3 p-4 rounded-xl bg-zinc-900 border border-gold-subtle max-w-xs w-full mb-6 text-center">
+              <div>
+                <span className="text-[10px] text-zinc-400 block font-mono-arcade uppercase">Final Score</span>
+                <span className="text-2xl font-black font-mono-arcade text-gold-gradient">{score}</span>
+              </div>
+              <div className="border-l border-zinc-800">
+                <span className="text-[10px] text-zinc-400 block font-mono-arcade uppercase">Total Run Time</span>
+                <span className="text-2xl font-bold font-mono-arcade text-emerald-400">
+                  {((sim.current.startTime > 0 ? Date.now() - sim.current.startTime : 0) / 1000).toFixed(1)}s
+                </span>
+              </div>
             </div>
 
             <div className="flex gap-3">

@@ -11,7 +11,7 @@ export const PINN_CONFIG = {
   TOKEN_SYMBOL: "PINN",
   BLOCKCHAIN: "Solana",
   TOKEN_MINT_ADDRESS: "6n2dDvako6nWp2zeKabf2UFxBta8xjvcqgFfZwsNpump",
-  OFFICIAL_TELEGRAM_URL: "https://t.me/pinnja9",
+  OFFICIAL_TELEGRAM_URL: "https://t.me/+B1Wz7pu8zJdlOGYx",
   TAGLINE: "PLAY. COMPETE. EARN PINN.",
 
   // External Block Explorer URLs
@@ -36,7 +36,7 @@ export const PINN_CONFIG = {
     ELIGIBILITY_REQUIREMENTS: [
       "Open to all players worldwide free of charge. No entry fee required.",
       "No mandatory token balance required to participate in the game.",
-      "Must join the official Telegram community (t.me/pinnja9) to claim prizes if placing top 10.",
+      "Must join the official Telegram community (https://t.me/+B1Wz7pu8zJdlOGYx) to claim prizes if placing top 10.",
       "Players must be at least 18 years of age or the legal age of majority in their jurisdiction."
     ],
     REWARD_POOL_INFORMATION: "Community-sponsored prize pool allocated by project administration for verified top finishers. Detailed prize tier breakdowns are announced inside the official Telegram channel.",

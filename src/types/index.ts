@@ -39,6 +39,7 @@ export interface LeaderboardEntry {
   isVerified: boolean;
   walletAddress?: string;
   isDemo?: boolean;
+  durationMs?: number;
 }
 
 export interface PlayerStats {
@@ -48,6 +49,8 @@ export interface PlayerStats {
   totalGamesPlayed: number;
   totalCoinsCollected: number;
   lastPlayedAt?: string;
+  totalPlayTimeMs?: number;
+  lastRunDurationMs?: number;
 }
 
 export interface GamePersonalBests {
@@ -192,3 +195,112 @@ export interface AdminCheckResult {
   userId?: string;
   reason?: string;
 }
+
+// ==========================================
+// SOLANA WALLET AUTHENTICATION & PLAYER PROFILES
+// ==========================================
+
+export interface PlayerProfile {
+  id: string; // Stable internal UUID
+  walletAddress: string; // Verified normalized Solana wallet address
+  displayName: string; // Themed username (e.g. MobayCoinChaser)
+  authUserId?: string | null;
+  coinsBalance: number;
+  coinsWithdrawn: number;
+  totalGamesPlayed: number;
+  totalPlayTimeMs: number;
+  lastRunDurationMs: number;
+  isVerified: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WalletAuthChallenge {
+  nonce: string;
+  domain: string;
+  issuedAt: string;
+  expiresAt: string;
+  walletAddress: string;
+  message: string;
+}
+
+export interface WalletAuthResult {
+  success: boolean;
+  token?: string;
+  player?: PlayerProfile;
+  error?: string;
+  isFirstTime?: boolean;
+}
+
+export interface CoinLedgerEntry {
+  id: string;
+  playerId: string;
+  walletAddress: string;
+  amount: number;
+  balanceAfter: number;
+  entryType: 'game_reward' | 'tournament_prize' | 'withdrawal' | 'adjustment';
+  referenceId?: string;
+  description?: string;
+  createdAt: string;
+}
+
+// ==========================================
+// AUTHORITATIVE COIN TOTALS & WITHDRAWALS
+// ==========================================
+
+export interface PlayerCoinSummary {
+  coinRushCoins: number;
+  treasureHuntCoins: number;
+  puzzleMasterCoins: number;
+  speedTapCoins: number;
+  totalCoinsCollected: number; // strictly equals sum of the four games
+  eligibleEarnings: number;
+  paidTotal: number;
+  reservedAmount: number;
+  availableBalance: number;
+}
+
+export type WithdrawalStatus =
+  | 'pending'
+  | 'approved'
+  | 'processing'
+  | 'rejected'
+  | 'completed'
+  | 'paid'
+  | 'cancelled';
+
+export interface WithdrawalRequest {
+  id: string;
+  userId?: string | null;
+  playerId?: string | null;
+  playerName: string;
+  walletAddress: string; // Destination Solana address
+  amountCoins: number;
+  amountRaw: string | number;
+  tokenMint: string;
+  status: WithdrawalStatus;
+  adminNotes?: string;
+  rejectionReason?: string;
+  txSignature?: string;
+  verifiedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminPlayerBalanceItem {
+  id: string;
+  userId: string;
+  playerName: string;
+  walletAddress?: string;
+  coinRushCoins: number;
+  treasureHuntCoins: number;
+  puzzleMasterCoins: number;
+  speedTapCoins: number;
+  totalCoinsCollected: number;
+  eligibleEarnings: number;
+  paidTotal: number;
+  reservedAmount: number;
+  availableBalance: number;
+  lastActive?: string;
+}
+

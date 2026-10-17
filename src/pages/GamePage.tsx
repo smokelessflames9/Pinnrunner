@@ -73,6 +73,9 @@ export const GamePage: React.FC<GamePageProps> = ({ onNavigate }) => {
   const [displayNameInput, setDisplayNameInput] = useState<string>(playerStats.displayName);
   const [isNewHighScore, setIsNewHighScore] = useState<boolean>(false);
   const [nameSavedFeedback, setNameSavedFeedback] = useState<boolean>(false);
+  const [lastRunDurationMs, setLastRunDurationMs] = useState<number>(
+    () => leaderboardService.getPlayerStats().lastRunDurationMs || 0
+  );
 
   // Game loop animation frame and timing
   const animationFrameId = useRef<number | null>(null);
@@ -288,7 +291,13 @@ export const GamePage: React.FC<GamePageProps> = ({ onNavigate }) => {
     soundService.playCrash();
     setTimeout(() => soundService.playGameOver(), 200);
 
-    const elapsedMs = Math.max(3000, Date.now() - g.sessionStartTime);
+    const elapsedMs =
+      g.elapsedTime > 0
+        ? Math.max(1000, Math.round(g.elapsedTime * 1000))
+        : g.sessionStartTime > 0
+        ? Math.max(1000, Date.now() - g.sessionStartTime)
+        : 3500;
+    setLastRunDurationMs(elapsedMs);
     const result = leaderboardService.recordGameResult(g.score, g.coins, {
       sessionId: g.sessionId,
       durationMs: elapsedMs,
@@ -388,6 +397,9 @@ export const GamePage: React.FC<GamePageProps> = ({ onNavigate }) => {
         if (frameCount % 6 === 0) {
           setScore(g.score);
           setDistanceMeters(Math.floor(g.distance));
+          if (g.elapsedTime > 0) {
+            setLastRunDurationMs(Math.round(g.elapsedTime * 1000));
+          }
         }
 
         // Obstacle Spawner
@@ -1082,9 +1094,15 @@ export const GamePage: React.FC<GamePageProps> = ({ onNavigate }) => {
                 <span className="text-lg sm:text-xl font-bold font-mono-arcade text-white">{coinsCollected}</span>
               </div>
             </div>
-            <div className="hidden sm:block border-l border-zinc-800 pl-6">
+            <div className="hidden sm:block border-l border-zinc-800 pl-4 sm:pl-6">
               <span className="text-xs uppercase tracking-wider text-zinc-400 block font-mono-arcade">Distance</span>
               <span className="text-lg font-bold font-mono-arcade text-zinc-300">{distanceMeters}m</span>
+            </div>
+            <div className="hidden md:block border-l border-zinc-800 pl-4 sm:pl-6">
+              <span className="text-xs uppercase tracking-wider text-zinc-400 block font-mono-arcade">Run Time</span>
+              <span className="text-lg font-bold font-mono-arcade text-emerald-400">
+                {(lastRunDurationMs / 1000).toFixed(1)}s
+              </span>
             </div>
           </div>
 
@@ -1229,18 +1247,24 @@ export const GamePage: React.FC<GamePageProps> = ({ onNavigate }) => {
               </p>
 
               {/* Score Breakdown Box */}
-              <div className="grid grid-cols-3 gap-2 sm:gap-4 max-w-md w-full bg-zinc-900/90 border border-gold-subtle/50 rounded-xl p-3 sm:p-4 mb-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 max-w-md w-full bg-zinc-900/90 border border-gold-subtle/50 rounded-xl p-3 sm:p-4 mb-4">
                 <div className="text-center">
-                  <span className="text-[11px] text-zinc-400 uppercase block font-mono-arcade">Final Score</span>
-                  <span className="text-xl sm:text-2xl font-bold font-mono-arcade text-gold-gradient">{score}</span>
+                  <span className="text-[10px] text-zinc-400 uppercase block font-mono-arcade">Final Score</span>
+                  <span className="text-lg sm:text-xl font-bold font-mono-arcade text-gold-gradient">{score}</span>
                 </div>
-                <div className="text-center border-x border-zinc-800">
-                  <span className="text-[11px] text-zinc-400 uppercase block font-mono-arcade">Coins</span>
-                  <span className="text-xl sm:text-2xl font-bold font-mono-arcade text-amber-300">{coinsCollected}</span>
+                <div className="text-center sm:border-x border-zinc-800">
+                  <span className="text-[10px] text-zinc-400 uppercase block font-mono-arcade">Coins</span>
+                  <span className="text-lg sm:text-xl font-bold font-mono-arcade text-amber-300">{coinsCollected}</span>
+                </div>
+                <div className="text-center sm:border-r border-zinc-800">
+                  <span className="text-[10px] text-zinc-400 uppercase block font-mono-arcade">Distance</span>
+                  <span className="text-lg sm:text-xl font-bold font-mono-arcade text-zinc-200">{distanceMeters}m</span>
                 </div>
                 <div className="text-center">
-                  <span className="text-[11px] text-zinc-400 uppercase block font-mono-arcade">Distance</span>
-                  <span className="text-xl sm:text-2xl font-bold font-mono-arcade text-zinc-200">{distanceMeters}m</span>
+                  <span className="text-[10px] text-zinc-400 uppercase block font-mono-arcade">Run Time</span>
+                  <span className="text-lg sm:text-xl font-bold font-mono-arcade text-emerald-400">
+                    {(lastRunDurationMs / 1000).toFixed(1)}s
+                  </span>
                 </div>
               </div>
 
@@ -1339,7 +1363,12 @@ export const GamePage: React.FC<GamePageProps> = ({ onNavigate }) => {
               Player Identity
             </span>
             <span className="text-lg font-bold text-white font-serif">{playerStats.displayName}</span>
-            <span className="text-xs text-zinc-400 block mt-0.5">Games Played: {playerStats.totalGamesPlayed}</span>
+            <span className="text-xs text-zinc-400 block mt-0.5">
+              Games: {playerStats.totalGamesPlayed} · Last Run:{' '}
+              <strong className="text-emerald-400 font-mono-arcade">
+                {(((playerStats.lastRunDurationMs || lastRunDurationMs || 0)) / 1000).toFixed(1)}s
+              </strong>
+            </span>
           </div>
           <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-amber-400">
             <User className="w-5 h-5" />

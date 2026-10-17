@@ -231,6 +231,8 @@ create index if not exists idx_payment_records_user on public.payment_records (u
 create index if not exists idx_payment_records_sig on public.payment_records (tx_signature);
 create index if not exists idx_payment_records_status on public.payment_records (status);
 create index if not exists idx_payment_records_reward_id on public.payment_records (reward_request_id);
+-- Database-level safeguard: Ensure at most ONE confirmed or verified_paid payout can exist per reward_request_id
+create unique index if not exists uq_payment_records_settled_reward on public.payment_records (reward_request_id) where status in ('confirmed', 'verified_paid');
 
 -- =========================================================================
 -- SECTION 6: Row Level Security (RLS) Configuration
@@ -924,14 +926,22 @@ begin
     return jsonb_build_object('success', false, 'error', 'Invalid Solana transaction signature.');
   end if;
 
-  -- 2. Verify reward request exists
-  select * into v_reward from public.reward_requests where id = p_reward_id;
+  -- 2. Row-level lock on reward_requests to serialize concurrent payouts
+  select * into v_reward from public.reward_requests where id = p_reward_id for update;
   if not found then
     return jsonb_build_object('success', false, 'error', 'Reward request not found.');
   end if;
 
   if v_reward.status = 'completed' then
     return jsonb_build_object('success', false, 'error', 'Reward has already been marked as completed/paid.');
+  end if;
+
+  -- 2b. Check if an active confirmed/verified payment record already exists for this reward
+  if exists (
+    select 1 from public.payment_records
+    where reward_request_id = p_reward_id and status in ('confirmed', 'verified_paid')
+  ) then
+    return jsonb_build_object('success', false, 'error', 'Reward request already has a confirmed payout.');
   end if;
 
   -- 3. Duplicate transaction signature check across all payments
@@ -949,7 +959,11 @@ begin
   set status = 'completed',
       admin_notes = coalesce(p_note, 'Paid and verified on Solana mainnet.'),
       updated_at = timezone('utc'::text, now())
-  where id = p_reward_id;
+  where id = p_reward_id and status != 'completed';
+
+  if not found then
+    return jsonb_build_object('success', false, 'error', 'Concurrent settlement conflict: Reward was already marked completed.');
+  end if;
 
   -- 6. Check if an existing queued payment record exists for this reward
   select id into v_existing_payment_id

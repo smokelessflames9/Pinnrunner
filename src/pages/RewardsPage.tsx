@@ -28,21 +28,28 @@ import {
   RewardRequest,
   PaymentRecord,
   TournamentRankingEntry,
+  PlayerProfile,
 } from '../types';
 import { PINN_CONFIG } from '../config/pinnConfig';
 import { tournamentService } from '../services/tournamentService';
 import { adminService } from '../services/adminService';
 import { getCurrentUser } from '../services/supabaseClient';
 import { walletService } from '../services/walletService';
+import { playerAuthService } from '../services/playerAuthService';
 
 interface RewardsPageProps {
   onNavigate: (page: PageNav) => void;
   onOpenAuthModal?: () => void;
+  onOpenWalletModal?: () => void;
 }
 
 type RewardsTab = 'results' | 'my-rewards' | 'my-payouts' | 'rules';
 
-export const RewardsPage: React.FC<RewardsPageProps> = ({ onNavigate, onOpenAuthModal }) => {
+export const RewardsPage: React.FC<RewardsPageProps> = ({
+  onNavigate,
+  onOpenAuthModal,
+  onOpenWalletModal,
+}) => {
   const [activeTab, setActiveTab] = useState<RewardsTab>('results');
   const [txLookupInput, setTxLookupInput] = useState('');
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
@@ -50,6 +57,7 @@ export const RewardsPage: React.FC<RewardsPageProps> = ({ onNavigate, onOpenAuth
   // User and Wallet State
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [walletState, setWalletState] = useState(walletService.getState());
+  const [playerProfile, setPlayerProfile] = useState<PlayerProfile | null>(() => playerAuthService.getProfile());
 
   // Data
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
@@ -64,23 +72,34 @@ export const RewardsPage: React.FC<RewardsPageProps> = ({ onNavigate, onOpenAuth
 
   const comp = PINN_CONFIG.COMPETITION;
 
-  // Subscribe to wallet state
+  // Subscribe to wallet state and player profile
   useEffect(() => {
-    const unsub = walletService.subscribe((state) => {
+    const unsubWallet = walletService.subscribe((state) => {
       setWalletState(state);
     });
-    return () => unsub();
+    const unsubAuth = playerAuthService.subscribe((profile) => {
+      setPlayerProfile(profile);
+    });
+    return () => {
+      unsubWallet();
+      unsubAuth();
+    };
   }, []);
 
   // Fetch initial data
   useEffect(() => {
     loadUserDataAndTournaments();
-  }, [walletState.address]);
+  }, [walletState.address, playerProfile?.id]);
 
-  const loadUserDataAndTournaments = async () => {
+  const loadUserDataAndTournaments = async (overrideProfile?: PlayerProfile) => {
     try {
       const user = await getCurrentUser();
       setCurrentUser(user);
+
+      const profile = overrideProfile || playerProfile || playerAuthService.getProfile();
+      if (profile) {
+        setPlayerProfile(profile);
+      }
 
       const tourns = await tournamentService.getTournaments();
       setTournaments(tourns);
@@ -95,9 +114,9 @@ export const RewardsPage: React.FC<RewardsPageProps> = ({ onNavigate, onOpenAuth
         loadRankingsForTournament(defaultTourn.id);
       }
 
-      // Load player-specific rewards & payments
-      const uid = user?.id;
-      const wAddr = walletState.address || undefined;
+      // Load player-specific rewards & payments using stable internal UUID & verified wallet address
+      const uid = profile?.id || user?.id;
+      const wAddr = profile?.walletAddress || walletState.address || undefined;
 
       if (uid || wAddr) {
         setLoadingMyData(true);
@@ -200,8 +219,26 @@ export const RewardsPage: React.FC<RewardsPageProps> = ({ onNavigate, onOpenAuth
             </div>
             <div>
               <div className="text-xs text-zinc-400 font-semibold uppercase">Player Account</div>
-              <div className="text-xs font-bold text-white">
-                {currentUser?.email || (currentUser ? 'Authenticated Player' : 'Not Signed In')}
+              <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                {playerProfile ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="font-serif text-amber-300 font-black">{playerProfile.displayName}</span>
+                    <span className="text-[10px] text-zinc-400 font-normal">({playerProfile.coinsBalance.toLocaleString()} coins)</span>
+                  </>
+                ) : walletState.isConnected ? (
+                  <span className="text-amber-400 flex items-center gap-1.5">
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                    <span>Synchronizing Player Account...</span>
+                  </span>
+                ) : currentUser ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>{currentUser.email || 'Authenticated Player'}</span>
+                  </>
+                ) : (
+                  <span className="text-zinc-500">Not Connected</span>
+                )}
               </div>
             </div>
           </div>
@@ -226,16 +263,16 @@ export const RewardsPage: React.FC<RewardsPageProps> = ({ onNavigate, onOpenAuth
         </div>
 
         <div className="flex items-center gap-2">
-          {!currentUser && onOpenAuthModal && (
+          {!playerProfile && !currentUser && (
             <button
-              onClick={onOpenAuthModal}
+              onClick={onOpenWalletModal || onOpenAuthModal}
               className="px-4 py-2 rounded-xl bg-gold-gradient text-black font-extrabold text-xs uppercase tracking-wider shadow hover:scale-105 transition-all cursor-pointer"
             >
-              Sign In to View My Rewards
+              Connect Wallet to View Rewards
             </button>
           )}
           <button
-            onClick={loadUserDataAndTournaments}
+            onClick={() => loadUserDataAndTournaments()}
             title="Refresh Data"
             className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-amber-400 cursor-pointer"
           >
@@ -462,26 +499,24 @@ export const RewardsPage: React.FC<RewardsPageProps> = ({ onNavigate, onOpenAuth
               </div>
             </div>
 
-            {!currentUser && (
+            {!currentUser && !playerProfile && (
               <div className="p-8 rounded-2xl bg-zinc-900/60 border border-zinc-800 text-center flex flex-col items-center">
                 <Lock className="w-8 h-8 text-amber-400 mb-2" />
-                <h3 className="text-base font-bold text-white mb-1">Authentication Required</h3>
+                <h3 className="text-base font-bold text-white mb-1">Solana Wallet Authentication Required</h3>
                 <p className="text-xs text-zinc-400 max-w-md mb-4">
-                  Please sign in with your player account so we can securely retrieve your verified
-                  podium finishes and pending reward claims.
+                  Connect your Solana wallet to automatically verify ownership and retrieve your verified
+                  podium finishes, token allocations, and withdrawal records.
                 </p>
-                {onOpenAuthModal && (
-                  <button
-                    onClick={onOpenAuthModal}
-                    className="px-6 py-2.5 rounded-xl bg-gold-gradient text-black font-extrabold text-xs uppercase tracking-wider cursor-pointer"
-                  >
-                    Player Sign In
-                  </button>
-                )}
+                <button
+                  onClick={onOpenWalletModal || onOpenAuthModal}
+                  className="px-6 py-2.5 rounded-xl bg-gold-gradient text-black font-extrabold text-xs uppercase tracking-wider cursor-pointer shadow-lg hover:scale-105 transition-all"
+                >
+                  Connect & Authenticate Wallet
+                </button>
               </div>
             )}
 
-            {currentUser && myRewards.length === 0 && (
+            {(currentUser || playerProfile) && myRewards.length === 0 && (
               <div className="p-8 rounded-2xl bg-zinc-900/40 border border-zinc-800 text-center flex flex-col items-center">
                 <Trophy className="w-8 h-8 text-zinc-600 mb-2" />
                 <h3 className="text-base font-bold text-white mb-1">No Active Reward Claims Yet</h3>
@@ -498,7 +533,7 @@ export const RewardsPage: React.FC<RewardsPageProps> = ({ onNavigate, onOpenAuth
               </div>
             )}
 
-            {currentUser && myRewards.length > 0 && (
+            {(currentUser || playerProfile) && myRewards.length > 0 && (
               <div className="overflow-x-auto rounded-2xl border border-zinc-800">
                 <table className="w-full text-left text-xs sm:text-sm">
                   <thead>

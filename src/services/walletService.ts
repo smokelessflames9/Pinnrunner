@@ -1,4 +1,5 @@
 import { WalletState } from '../types';
+import { playerAuthService } from './playerAuthService';
 
 declare global {
   interface Window {
@@ -10,6 +11,7 @@ declare global {
       publicKey?: { toString: () => string };
       isConnected?: boolean;
       on?: (event: string, callback: (args: unknown) => void) => void;
+      signMessage?: (message: Uint8Array, encoding?: string) => Promise<{ signature: Uint8Array }>;
     };
     phantom?: {
       solana?: Window['solana'];
@@ -25,6 +27,7 @@ class WalletService {
   };
 
   private listeners: Array<(state: WalletState) => void> = [];
+  private hasInitializedListeners = false;
 
   constructor() {
     // Check if previously connected in localStorage
@@ -35,11 +38,70 @@ class WalletService {
           const parsed = JSON.parse(saved);
           if (parsed.address) {
             this.state = parsed;
+            // Background re-authentication if not already authenticated
+            setTimeout(() => {
+              if (this.state.address) {
+                const isDemo = this.state.walletName?.toLowerCase().includes('demo') || false;
+                playerAuthService.authenticateWallet(this.state.address, this.getProvider(), isDemo).catch((e) => {
+                  console.warn('Initial session restore auth note:', e?.message || e);
+                });
+              }
+            }, 100);
           }
         }
       } catch {
         // ignore
       }
+    }
+
+    if (typeof window !== 'undefined') {
+      this.setupWalletEventListeners();
+    }
+  }
+
+  private getProvider() {
+    if (typeof window === 'undefined') return undefined;
+    return window.solana || window.phantom?.solana;
+  }
+
+  private setupWalletEventListeners() {
+    if (this.hasInitializedListeners) return;
+    const provider = this.getProvider();
+    if (provider && typeof provider.on === 'function') {
+      this.hasInitializedListeners = true;
+
+      // Listen for wallet account switching
+      provider.on('accountChanged', (publicKey: unknown) => {
+        if (publicKey) {
+          const newAddress = typeof (publicKey as any).toString === 'function'
+            ? (publicKey as any).toString()
+            : String(publicKey);
+
+          if (newAddress && newAddress !== this.state.address) {
+            console.log('Solana wallet account changed to:', newAddress);
+            this.state = {
+              isConnected: true,
+              address: newAddress,
+              walletName: provider.isPhantom ? 'Phantom' : 'Solana Wallet',
+            };
+            this.notify();
+
+            // Automatically re-authenticate new account and isolate data
+            playerAuthService.authenticateWallet(newAddress, provider, false).catch((err) => {
+              console.warn('Auto-authentication on account change note:', err);
+            });
+          }
+        } else {
+          // Empty public key means disconnected
+          this.disconnect();
+        }
+      });
+
+      // Listen for disconnect event
+      provider.on('disconnect', () => {
+        console.log('Solana wallet disconnected');
+        this.disconnect();
+      });
     }
   }
 
@@ -70,10 +132,11 @@ class WalletService {
     return typeof window !== 'undefined' && Boolean(window.solana || window.phantom?.solana);
   }
 
-  public async connect(walletType: 'phantom' | 'solflare' | 'demo' = 'phantom'): Promise<WalletState> {
-    const solanaProvider = window.solana || window.phantom?.solana;
+  public async connect(walletType: 'phantom' | 'solflare' = 'phantom'): Promise<WalletState> {
+    const solanaProvider = this.getProvider();
+    this.setupWalletEventListeners();
 
-    if (walletType !== 'demo' && solanaProvider) {
+    if (solanaProvider) {
       try {
         const res = await solanaProvider.connect();
         const pubKey = res.publicKey.toString();
@@ -83,6 +146,14 @@ class WalletService {
           walletName: solanaProvider.isPhantom ? 'Phantom' : 'Solana Wallet',
         };
         this.notify();
+
+        // 1. AUTOMATIC WALLET AUTHENTICATION & PROFILE SYNCHRONIZATION
+        try {
+          await playerAuthService.authenticateWallet(pubKey, solanaProvider);
+        } catch (authErr) {
+          console.warn('Wallet ownership authentication error:', authErr);
+        }
+
         return this.state;
       } catch (err) {
         console.warn('User rejected or wallet connection error:', err);
@@ -90,26 +161,14 @@ class WalletService {
       }
     }
 
-    // If no extension or demo mode selected, provide a clean demo wallet session for testing
-    // with a real-format Solana public key
-    const demoAddresses = [
-      '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
-      '3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLyNzkKqV4F2E',
-      '8mKbTqN2b1X9VfZ4p6Ww89Y5C1jL2mPnX3vQ4R7dJ8sT'
-    ];
-    const chosen = demoAddresses[Math.floor(Math.random() * demoAddresses.length)];
-
-    this.state = {
-      isConnected: true,
-      address: chosen,
-      walletName: 'Demo Solana Wallet',
-    };
-    this.notify();
-    return this.state;
+    // If no provider detected in window
+    throw new Error(
+      `No supported Solana wallet extension detected (${walletType === 'phantom' ? 'Phantom' : 'Solflare'}). Please install the extension or open PINN Arcade inside your wallet app browser.`
+    );
   }
 
   public async disconnect(): Promise<void> {
-    const solanaProvider = window.solana || window.phantom?.solana;
+    const solanaProvider = this.getProvider();
     if (solanaProvider && solanaProvider.disconnect) {
       try {
         await solanaProvider.disconnect();
@@ -123,6 +182,9 @@ class WalletService {
       walletName: null,
     };
     this.notify();
+
+    // Clear player session and isolate data
+    playerAuthService.clearSession();
   }
 }
 

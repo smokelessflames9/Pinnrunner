@@ -29,6 +29,7 @@ import {
   Sliders,
   Send,
   Zap,
+  Loader2,
 } from 'lucide-react';
 import {
   PageNav,
@@ -97,6 +98,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
 
   // Rewards & Payments
   const [rewardRequests, setRewardRequests] = useState<RewardRequest[]>([]);
+  const [rewardFilter, setRewardFilter] = useState<'all' | 'pending' | 'approved' | 'rejected' | 'completed'>('all');
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
 
   // Payout Recording Modal (Part 3 & 4: Solana On-Chain Settlement)
@@ -143,6 +145,14 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   const [formError, setFormError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [copiedMigration, setCopiedMigration] = useState(false);
+  const [updatingRewardId, setUpdatingRewardId] = useState<string | null>(null);
+  const [updatingRewardAction, setUpdatingRewardAction] = useState<'approved' | 'rejected' | null>(null);
+  const [rewardTabError, setRewardTabError] = useState<string | null>(null);
+  const [rewardTabSuccess, setRewardTabSuccess] = useState<string | null>(null);
+  const [reviewingScoreId, setReviewingScoreId] = useState<string | null>(null);
+  const [reviewingScoreAction, setReviewingScoreAction] = useState<ScoreStatus | null>(null);
+  const [scoreTabError, setScoreTabError] = useState<string | null>(null);
+  const [scoreTabSuccess, setScoreTabSuccess] = useState<string | null>(null);
 
   // Load Admin Data
   useEffect(() => {
@@ -274,12 +284,58 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     }
   };
 
-  const handleReviewScore = async (scoreId: string, newStatus: ScoreStatus, reason: string) => {
-    const res = await adminService.reviewScore(scoreId, newStatus, reason);
-    if (res.success) {
-      setActionSuccess(`Score ${scoreId} updated to ${newStatus}.`);
-      await refreshAllData();
-      setTimeout(() => setActionSuccess(null), 3000);
+  const handleReviewScore = async (
+    scoreId: string,
+    newStatus: ScoreStatus,
+    reason: string,
+    scoreRecord?: ScoreRecord
+  ) => {
+    // Duplicate submission prevention
+    if (reviewingScoreId) return;
+
+    setReviewingScoreId(scoreId);
+    setReviewingScoreAction(newStatus);
+    setScoreTabError(null);
+    setScoreTabSuccess(null);
+
+    try {
+      const res = await adminService.reviewScore(scoreId, newStatus, reason, scoreRecord);
+      if (res.success) {
+        const actionLabel =
+          newStatus === 'verified'
+            ? 'accepted and verified'
+            : newStatus === 'rejected'
+            ? 'flagged and rejected'
+            : 're-queued';
+
+        setScoreTabSuccess(`Score successfully ${actionLabel}!`);
+        setActionSuccess(`Score ${scoreId} updated to ${newStatus}.`);
+
+        // Immediate optimistic UI update for instant feedback
+        setScores((prev) =>
+          prev.map((s) =>
+            s.id === scoreId
+              ? { ...s, status: newStatus, validationReason: reason }
+              : s
+          )
+        );
+
+        // Refresh authoritative list
+        await refreshAllData();
+
+        setTimeout(() => {
+          setScoreTabSuccess(null);
+          setActionSuccess(null);
+        }, 4000);
+      } else {
+        setScoreTabError(res.error || `Failed to update score status to ${newStatus}.`);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setScoreTabError(`Failed to update score status: ${msg}`);
+    } finally {
+      setReviewingScoreId(null);
+      setReviewingScoreAction(null);
     }
   };
 
@@ -310,11 +366,50 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   };
 
   const handleUpdateRewardStatus = async (rewardId: string, status: RewardStatus, notes?: string) => {
-    const res = await adminService.updateRewardStatus(rewardId, status, notes);
-    if (res.success) {
-      setActionSuccess(`Reward status updated to ${status}.`);
-      await refreshAllData();
-      setTimeout(() => setActionSuccess(null), 3000);
+    // Duplicate submission prevention
+    if (updatingRewardId) return;
+
+    setUpdatingRewardId(rewardId);
+    setUpdatingRewardAction(status === 'approved' ? 'approved' : 'rejected');
+    setFormError(null);
+    setActionSuccess(null);
+    setRewardTabError(null);
+    setRewardTabSuccess(null);
+
+    try {
+      const res = await adminService.updateRewardStatus(rewardId, status, notes);
+      if (res.success) {
+        const successMessage = `Reward request #${rewardId.slice(0, 8)} status successfully updated to ${status}.`;
+        setActionSuccess(successMessage);
+        setRewardTabSuccess(successMessage);
+        // Refresh reward list after successful database confirmation
+        await refreshAllData();
+        setTimeout(() => {
+          setActionSuccess(null);
+          setRewardTabSuccess(null);
+        }, 5000);
+      } else {
+        const errorMsg = res.error || `Failed to update reward status to ${status}.`;
+        setFormError(errorMsg);
+        setRewardTabError(errorMsg);
+        setTimeout(() => {
+          setFormError(null);
+          setRewardTabError(null);
+        }, 7000);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const errorMsg = `Error updating reward status: ${msg}`;
+      setFormError(errorMsg);
+      setRewardTabError(errorMsg);
+      setTimeout(() => {
+        setFormError(null);
+        setRewardTabError(null);
+      }, 7000);
+    } finally {
+      // Always restore button state in finally block
+      setUpdatingRewardId(null);
+      setUpdatingRewardAction(null);
     }
   };
 
@@ -1028,6 +1123,39 @@ $$;`;
             </div>
           </div>
 
+          {/* Tab-Level Status Banners */}
+          {scoreTabSuccess && (
+            <div className="p-3.5 rounded-2xl bg-emerald-950/60 border border-emerald-500/60 text-emerald-300 text-xs font-bold flex items-center justify-between shadow-lg">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{scoreTabSuccess}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setScoreTabSuccess(null)}
+                className="cursor-pointer text-emerald-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {scoreTabError && (
+            <div className="p-3.5 rounded-2xl bg-red-950/60 border border-red-500/60 text-red-300 text-xs font-bold flex items-center justify-between shadow-lg">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                <span>{scoreTabError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setScoreTabError(null)}
+                className="cursor-pointer text-red-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           <div className="p-6 rounded-3xl bg-zinc-950 border border-gold-subtle/40 shadow-xl overflow-x-auto">
             <table className="w-full text-left text-xs sm:text-sm">
               <thead>
@@ -1043,79 +1171,124 @@ $$;`;
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-900">
-                {scores.map((s) => (
-                  <tr key={s.id} className="hover:bg-zinc-900/40">
-                    <td className="py-3 px-3">
-                      <div className="font-bold text-white">{s.playerName}</div>
-                      <div className="text-[10px] text-zinc-500 font-mono-arcade">{s.userId}</div>
-                    </td>
-                    <td className="py-3 px-3">
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-300 font-mono-arcade">
-                        {s.gameId}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3">
-                      <div className="font-mono-arcade font-bold text-amber-300">
-                        {s.score.toLocaleString()}
-                      </div>
-                      <div className="text-[10px] text-zinc-500">{s.coins} coins</div>
-                    </td>
-                    <td className="py-3 px-3 text-zinc-300 text-xs">
-                      {(s.durationMs / 1000).toFixed(1)}s
-                    </td>
-                    <td className="py-3 px-3 font-mono text-[10px] text-zinc-500 max-w-[120px] truncate">
-                      {s.sessionId}
-                    </td>
-                    <td className="py-3 px-3">
-                      <span
-                        className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                          s.status === 'verified'
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : s.status === 'pending'
-                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                            : 'bg-red-500/20 text-red-400 border border-red-500/30'
-                        }`}
-                      >
-                        {s.status}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 text-xs text-zinc-400 max-w-xs truncate">
-                      {s.validationReason || 'Standard run.'}
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {s.status !== 'verified' && (
-                          <button
-                            onClick={() =>
-                              handleReviewScore(
-                                s.id,
-                                'verified',
-                                'Manually approved by administrator referee.'
-                              )
-                            }
-                            className="px-2 py-1 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 text-xs font-bold cursor-pointer"
-                          >
-                            Verify
-                          </button>
-                        )}
-                        {s.status !== 'rejected' && (
-                          <button
-                            onClick={() =>
-                              handleReviewScore(
-                                s.id,
-                                'rejected',
-                                'Referee flagged: Disqualified due to anomalous trajectory.'
-                              )
-                            }
-                            className="px-2 py-1 rounded-lg bg-red-950/40 hover:bg-red-900/50 border border-red-500/40 text-red-400 text-xs font-bold cursor-pointer"
-                          >
-                            Reject
-                          </button>
-                        )}
-                      </div>
+                {scores.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-8 text-center text-zinc-500 text-xs">
+                      No scores found matching the &quot;{scoreFilter}&quot; filter.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  scores.map((s) => (
+                    <tr key={s.id} className="hover:bg-zinc-900/40">
+                      <td className="py-3 px-3">
+                        <div className="font-bold text-white">{s.playerName}</div>
+                        <div className="text-[10px] text-zinc-500 font-mono-arcade">{s.userId}</div>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-300 font-mono-arcade">
+                          {s.gameId}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3">
+                        <div className="font-mono-arcade font-bold text-amber-300">
+                          {s.score.toLocaleString()}
+                        </div>
+                        <div className="text-[10px] text-zinc-500">{s.coins} coins</div>
+                      </td>
+                      <td className="py-3 px-3 text-zinc-300 text-xs">
+                        {(s.durationMs / 1000).toFixed(1)}s
+                      </td>
+                      <td className="py-3 px-3 font-mono text-[10px] text-zinc-500 max-w-[120px] truncate">
+                        {s.sessionId}
+                      </td>
+                      <td className="py-3 px-3">
+                        <span
+                          className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                            s.status === 'verified'
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : s.status === 'pending'
+                              ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                              : 'bg-red-500/20 text-red-400 border border-red-500/30'
+                          }`}
+                        >
+                          {s.status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-xs text-zinc-400 max-w-xs truncate">
+                        {s.validationReason || 'Standard run.'}
+                      </td>
+                      <td className="py-3 px-3 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {s.status !== 'verified' && (
+                            <button
+                              type="button"
+                              disabled={Boolean(reviewingScoreId)}
+                              onClick={() =>
+                                handleReviewScore(
+                                  s.id,
+                                  'verified',
+                                  'Manually approved by administrator referee.',
+                                  s
+                                )
+                              }
+                              className={`px-2.5 py-1 rounded-lg border text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                reviewingScoreId === s.id && reviewingScoreAction === 'verified'
+                                  ? 'bg-emerald-900/80 border-emerald-400 text-white cursor-wait opacity-90'
+                                  : reviewingScoreId
+                                  ? 'bg-emerald-950/20 border-emerald-500/20 text-emerald-600/40 cursor-not-allowed opacity-50'
+                                  : 'bg-emerald-950/50 hover:bg-emerald-900/60 border-emerald-500/40 text-emerald-300 hover:text-white cursor-pointer active:scale-95'
+                              }`}
+                              title="Accept and verify player score"
+                            >
+                              {reviewingScoreId === s.id && reviewingScoreAction === 'verified' ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-300" />
+                                  <span>Accepting...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                  <span>Accept</span>
+                                </>
+                              )}
+                            </button>
+                          )}
+                          {s.status !== 'rejected' && (
+                            <button
+                              type="button"
+                              disabled={Boolean(reviewingScoreId)}
+                              onClick={() =>
+                                handleReviewScore(
+                                  s.id,
+                                  'rejected',
+                                  'Referee flagged: Disqualified due to anomalous trajectory.',
+                                  s
+                                )
+                              }
+                              className={`px-2.5 py-1 rounded-lg border text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                reviewingScoreId === s.id && reviewingScoreAction === 'rejected'
+                                  ? 'bg-red-900/80 border-red-400 text-white cursor-wait opacity-90'
+                                  : reviewingScoreId
+                                  ? 'bg-red-950/20 border-red-500/20 text-red-600/40 cursor-not-allowed opacity-50'
+                                  : 'bg-red-950/50 hover:bg-red-900/60 border-red-500/40 text-red-400 hover:text-white cursor-pointer active:scale-95'
+                              }`}
+                              title="Flag and reject score submission"
+                            >
+                              {reviewingScoreId === s.id && reviewingScoreAction === 'rejected' ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-red-300" />
+                                  <span>Rejecting...</span>
+                                </>
+                              ) : (
+                                <span>Reject</span>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -1135,56 +1308,158 @@ $$;`;
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-4">
-            {suspiciousScores.map((s) => (
-              <div
-                key={s.id}
-                className="p-5 rounded-2xl bg-zinc-950 border border-red-500/40 shadow-xl flex flex-wrap items-center justify-between gap-4"
-              >
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-red-400 font-bold text-sm">{s.playerName}</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-red-950/60 border border-red-500/50 text-red-300 font-mono">
-                      {s.gameId}
-                    </span>
-                    <span className="text-xs text-zinc-500">
-                      Score: <strong className="text-amber-300">{s.score.toLocaleString()}</strong> in{' '}
-                      {(s.durationMs / 1000).toFixed(1)}s
-                    </span>
-                  </div>
-                  <div className="text-xs text-red-300/90 font-mono">
-                    {s.validationReason || 'Heuristic violation triggered.'}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={() =>
-                      handleReviewScore(
-                        s.id,
-                        'rejected',
-                        'Confirmed anti-cheat infraction: Permanently disqualified.'
-                      )
-                    }
-                    className="px-3 py-1.5 rounded-xl bg-red-900/60 hover:bg-red-800 text-red-200 text-xs font-bold uppercase tracking-wider cursor-pointer"
-                  >
-                    Confirm Rejection
-                  </button>
-                  <button
-                    onClick={() =>
-                      handleReviewScore(
-                        s.id,
-                        'pending',
-                        'Re-queued for manual telemetry inspection.'
-                      )
-                    }
-                    className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs font-bold uppercase tracking-wider cursor-pointer"
-                  >
-                    Re-queue
-                  </button>
-                </div>
+          {/* Tab-Level Status Banners */}
+          {scoreTabSuccess && (
+            <div className="p-3.5 rounded-2xl bg-emerald-950/60 border border-emerald-500/60 text-emerald-300 text-xs font-bold flex items-center justify-between shadow-lg">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{scoreTabSuccess}</span>
               </div>
-            ))}
+              <button
+                type="button"
+                onClick={() => setScoreTabSuccess(null)}
+                className="cursor-pointer text-emerald-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {scoreTabError && (
+            <div className="p-3.5 rounded-2xl bg-red-950/60 border border-red-500/60 text-red-300 text-xs font-bold flex items-center justify-between shadow-lg">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                <span>{scoreTabError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setScoreTabError(null)}
+                className="cursor-pointer text-red-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4">
+            {suspiciousScores.length === 0 ? (
+              <div className="p-8 text-center text-zinc-500 text-xs bg-zinc-950 rounded-2xl border border-zinc-900">
+                No suspicious score telemetry flagged by server anti-cheat.
+              </div>
+            ) : (
+              suspiciousScores.map((s) => (
+                <div
+                  key={s.id}
+                  className="p-5 rounded-2xl bg-zinc-950 border border-red-500/40 shadow-xl flex flex-wrap items-center justify-between gap-4"
+                >
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-red-400 font-bold text-sm">{s.playerName}</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-red-950/60 border border-red-500/50 text-red-300 font-mono">
+                        {s.gameId}
+                      </span>
+                      <span className="text-xs text-zinc-500">
+                        Score: <strong className="text-amber-300">{s.score.toLocaleString()}</strong> in{' '}
+                        {(s.durationMs / 1000).toFixed(1)}s
+                      </span>
+                    </div>
+                    <div className="text-xs text-red-300/90 font-mono">
+                      {s.validationReason || 'Heuristic violation triggered.'}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      disabled={Boolean(reviewingScoreId)}
+                      onClick={() =>
+                        handleReviewScore(
+                          s.id,
+                          'verified',
+                          'Cleared after manual telemetry review: verified authentic run.',
+                          s
+                        )
+                      }
+                      className={`px-3 py-1.5 rounded-xl border text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all ${
+                        reviewingScoreId === s.id && reviewingScoreAction === 'verified'
+                          ? 'bg-emerald-900/80 border-emerald-400 text-white cursor-wait opacity-90'
+                          : reviewingScoreId
+                          ? 'bg-emerald-950/20 border-emerald-500/20 text-emerald-600/40 cursor-not-allowed opacity-50'
+                          : 'bg-emerald-950/60 hover:bg-emerald-900/80 border-emerald-500/50 text-emerald-300 cursor-pointer'
+                      }`}
+                    >
+                      {reviewingScoreId === s.id && reviewingScoreAction === 'verified' ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-300" />
+                          <span>Accepting...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Accept / Clear</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={Boolean(reviewingScoreId)}
+                      onClick={() =>
+                        handleReviewScore(
+                          s.id,
+                          'rejected',
+                          'Confirmed anti-cheat infraction: Permanently disqualified.',
+                          s
+                        )
+                      }
+                      className={`px-3 py-1.5 rounded-xl border text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all ${
+                        reviewingScoreId === s.id && reviewingScoreAction === 'rejected'
+                          ? 'bg-red-900/80 border-red-400 text-white cursor-wait opacity-90'
+                          : reviewingScoreId
+                          ? 'bg-red-950/20 border-red-500/20 text-red-600/40 cursor-not-allowed opacity-50'
+                          : 'bg-red-900/60 hover:bg-red-800 border-red-500/50 text-red-200 cursor-pointer'
+                      }`}
+                    >
+                      {reviewingScoreId === s.id && reviewingScoreAction === 'rejected' ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-red-300" />
+                          <span>Rejecting...</span>
+                        </>
+                      ) : (
+                        <span>Confirm Rejection</span>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={Boolean(reviewingScoreId)}
+                      onClick={() =>
+                        handleReviewScore(
+                          s.id,
+                          'pending',
+                          'Re-queued for manual telemetry inspection.',
+                          s
+                        )
+                      }
+                      className={`px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all ${
+                        reviewingScoreId === s.id && reviewingScoreAction === 'pending'
+                          ? 'opacity-80 cursor-wait'
+                          : reviewingScoreId
+                          ? 'opacity-50 cursor-not-allowed'
+                          : 'cursor-pointer'
+                      }`}
+                    >
+                      {reviewingScoreId === s.id && reviewingScoreAction === 'pending' ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-300" />
+                          <span>Re-queueing...</span>
+                        </>
+                      ) : (
+                        <span>Re-queue</span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       )}
@@ -1265,6 +1540,104 @@ $$;`;
             </div>
           </div>
 
+          {/* Tab-Level Status Banners */}
+          {rewardTabSuccess && (
+            <div className="p-3.5 rounded-2xl bg-emerald-950/60 border border-emerald-500/60 text-emerald-300 text-xs font-bold flex items-center justify-between shadow-lg">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{rewardTabSuccess}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRewardTabSuccess(null)}
+                className="cursor-pointer text-emerald-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {rewardTabError && (
+            <div className="p-3.5 rounded-2xl bg-red-950/60 border border-red-500/60 text-red-300 text-xs font-bold flex items-center justify-between shadow-lg">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                <span>{rewardTabError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRewardTabError(null)}
+                className="cursor-pointer text-red-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* Status Filter Tabs / Section Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl bg-zinc-950 border border-gold-subtle/30 shadow-lg">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+                Filter by Status:
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 p-1 bg-black/60 border border-zinc-800 rounded-xl">
+              {[
+                { id: 'all', label: 'All Requests', count: rewardRequests.length },
+                {
+                  id: 'pending',
+                  label: 'Pending Review',
+                  count: rewardRequests.filter((r) => r.status === 'pending_review' || r.status === 'prepared').length,
+                },
+                {
+                  id: 'approved',
+                  label: 'Approved',
+                  count: rewardRequests.filter((r) => r.status === 'approved').length,
+                },
+                {
+                  id: 'rejected',
+                  label: 'Rejected',
+                  count: rewardRequests.filter((r) => r.status === 'rejected').length,
+                },
+                {
+                  id: 'completed',
+                  label: 'Completed / Paid',
+                  count: rewardRequests.filter((r) => r.status === 'completed').length,
+                },
+              ].map((tab) => {
+                const isActive = rewardFilter === tab.id;
+                const isRejectedTab = tab.id === 'rejected';
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setRewardFilter(tab.id as any)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all cursor-pointer ${
+                      isActive
+                        ? isRejectedTab
+                          ? 'bg-red-500 text-white shadow-md shadow-red-500/20'
+                          : 'bg-gold-gradient text-black shadow-md shadow-amber-500/20'
+                        : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                        isActive
+                          ? isRejectedTab
+                            ? 'bg-red-950 text-red-200'
+                            : 'bg-black text-amber-300'
+                          : 'bg-zinc-900 text-zinc-400'
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="p-6 rounded-3xl bg-zinc-950 border border-gold-subtle/40 shadow-xl overflow-x-auto">
             <table className="w-full text-left text-xs sm:text-sm">
               <thead>
@@ -1279,84 +1652,190 @@ $$;`;
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-900">
-                {rewardRequests.map((r) => (
-                  <tr key={r.id} className="hover:bg-zinc-900/40">
-                    <td className="py-3 px-3">
-                      <div className="font-bold text-white">{r.playerName}</div>
-                      <div className="text-[10px] text-zinc-500 font-mono-arcade">
-                        {r.walletAddress}
-                      </div>
-                    </td>
-                    <td className="py-3 px-3 text-zinc-300 text-xs">{r.tournamentTitle || r.tournamentId}</td>
-                    <td className="py-3 px-3">
-                      <span className="font-bold text-amber-400">#{r.rank}</span>
-                      <span className="text-xs text-zinc-500 ml-1.5 font-mono-arcade">
-                        ({r.score.toLocaleString()})
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 font-bold text-gold-gradient font-serif">
-                      {r.rewardAmount}
-                    </td>
-                    <td className="py-3 px-3">
-                      <span
-                        className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                          r.status === 'completed'
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                            : r.status === 'approved'
-                            ? 'bg-blue-500/20 text-blue-400 border border-blue-500/40'
-                            : r.status === 'prepared' || r.status === 'pending_review'
-                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
-                            : 'bg-red-500/20 text-red-400 border border-red-500/40'
-                        }`}
-                      >
-                        {r.status}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 text-xs text-zinc-400 max-w-xs truncate">
-                      {r.adminNotes || 'Ready for review.'}
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {r.status !== 'completed' && (
-                          <button
-                            onClick={() => handleOpenPayoutModal(r)}
-                            className="px-2.5 py-1 rounded-lg bg-gold-gradient text-black text-xs font-extrabold uppercase tracking-wider shadow cursor-pointer"
-                          >
-                            Record Payout
-                          </button>
-                        )}
-                        {r.status !== 'approved' && r.status !== 'completed' && (
-                          <button
-                            onClick={() =>
-                              handleUpdateRewardStatus(
-                                r.id,
-                                'approved',
-                                'Approved for upcoming Solana distribution.'
-                              )
-                            }
-                            className="px-2 py-1 rounded-lg bg-emerald-950/50 hover:bg-emerald-900/60 border border-emerald-500/40 text-emerald-300 text-xs font-bold cursor-pointer"
-                          >
-                            Approve
-                          </button>
-                        )}
-                        {r.status !== 'rejected' && r.status !== 'completed' && (
-                          <button
-                            onClick={() =>
-                              handleUpdateRewardStatus(
-                                r.id,
-                                'rejected',
-                                'Rejected by tournament committee.'
-                              )
-                            }
-                            className="px-2 py-1 rounded-lg bg-red-950/50 hover:bg-red-900/60 border border-red-500/40 text-red-400 text-xs font-bold cursor-pointer"
-                          >
-                            Reject
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {(() => {
+                  const filtered = rewardRequests.filter((r) => {
+                    if (rewardFilter === 'all') return true;
+                    if (rewardFilter === 'pending') return r.status === 'pending_review' || r.status === 'prepared';
+                    return r.status === rewardFilter;
+                  });
+
+                  if (filtered.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={7} className="py-12 text-center">
+                          <div className="flex flex-col items-center justify-center gap-2">
+                            {rewardFilter === 'rejected' ? (
+                              <>
+                                <XCircle className="w-8 h-8 text-zinc-600 mb-1" />
+                                <div className="text-sm font-bold text-white uppercase tracking-wider">
+                                  No Rejected Reward Requests
+                                </div>
+                                <p className="text-xs text-zinc-400 max-w-sm">
+                                  Reward requests rejected by tournament administrators will appear in this section with review notes.
+                                </p>
+                              </>
+                            ) : rewardFilter === 'approved' ? (
+                              <>
+                                <CheckCircle2 className="w-8 h-8 text-blue-500/60 mb-1" />
+                                <div className="text-sm font-bold text-white uppercase tracking-wider">
+                                  No Approved Requests Awaiting Payout
+                                </div>
+                                <p className="text-xs text-zinc-400 max-w-sm">
+                                  Approve pending tournament requests to queue them for Solana disbursement.
+                                </p>
+                              </>
+                            ) : rewardFilter === 'completed' ? (
+                              <>
+                                <CheckCircle2 className="w-8 h-8 text-emerald-500/60 mb-1" />
+                                <div className="text-sm font-bold text-white uppercase tracking-wider">
+                                  No Completed Disbursements
+                                </div>
+                                <p className="text-xs text-zinc-400 max-w-sm">
+                                  Disbursements verified on the Solana blockchain will be listed here.
+                                </p>
+                              </>
+                            ) : (
+                              <>
+                                <Award className="w-8 h-8 text-zinc-600 mb-1" />
+                                <div className="text-sm font-bold text-white uppercase tracking-wider">
+                                  No Reward Requests Found
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return filtered.map((r) => (
+                    <tr key={r.id} className="hover:bg-zinc-900/40">
+                      <td className="py-3 px-3">
+                        <div className="font-bold text-white">{r.playerName}</div>
+                        <div className="text-[10px] text-zinc-500 font-mono-arcade">
+                          {r.walletAddress}
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-zinc-300 text-xs">{r.tournamentTitle || r.tournamentId}</td>
+                      <td className="py-3 px-3">
+                        <span className="font-bold text-amber-400">#{r.rank}</span>
+                        <span className="text-xs text-zinc-500 ml-1.5 font-mono-arcade">
+                          ({r.score.toLocaleString()})
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 font-bold text-gold-gradient font-serif">
+                        {r.rewardAmount}
+                      </td>
+                      <td className="py-3 px-3">
+                        <span
+                          className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                            r.status === 'completed'
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                              : r.status === 'approved'
+                              ? 'bg-blue-500/20 text-blue-400 border border-blue-500/40'
+                              : r.status === 'prepared' || r.status === 'pending_review'
+                              ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                              : 'bg-red-500/20 text-red-400 border border-red-500/40'
+                          }`}
+                        >
+                          {r.status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-xs text-zinc-400 max-w-xs truncate">
+                        {r.adminNotes || 'Ready for review.'}
+                      </td>
+                      <td className="py-3 px-3 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {r.status !== 'completed' && r.status !== 'rejected' && (
+                            <button
+                              type="button"
+                              disabled={Boolean(updatingRewardId)}
+                              onClick={() => handleOpenPayoutModal(r)}
+                              className={`px-2.5 py-1 rounded-lg bg-gold-gradient text-black text-xs font-extrabold uppercase tracking-wider shadow transition-all ${
+                                updatingRewardId
+                                  ? 'opacity-50 cursor-not-allowed'
+                                  : 'hover:scale-105 cursor-pointer'
+                              }`}
+                            >
+                              Record Payout
+                            </button>
+                          )}
+                          {r.status !== 'approved' && r.status !== 'completed' && (
+                            <button
+                              type="button"
+                              disabled={Boolean(updatingRewardId)}
+                              onClick={() =>
+                                handleUpdateRewardStatus(
+                                  r.id,
+                                  'approved',
+                                  'Approved for upcoming Solana distribution.'
+                                )
+                              }
+                              className={`px-2 py-1 rounded-lg border text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                updatingRewardId === r.id && updatingRewardAction === 'approved'
+                                  ? 'bg-emerald-900/80 border-emerald-400 text-white cursor-wait opacity-90'
+                                  : updatingRewardId
+                                  ? 'bg-emerald-950/20 border-emerald-500/20 text-emerald-600/40 cursor-not-allowed opacity-50'
+                                  : 'bg-emerald-950/50 hover:bg-emerald-900/60 border-emerald-500/40 text-emerald-300 hover:text-white cursor-pointer active:scale-95'
+                              }`}
+                              title="Approve reward request for distribution"
+                            >
+                              {updatingRewardId === r.id && updatingRewardAction === 'approved' ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-300" />
+                                  <span>Approving...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                  <span>Approve</span>
+                                </>
+                              )}
+                            </button>
+                          )}
+                          {r.status !== 'rejected' && r.status !== 'completed' && (
+                            <button
+                              type="button"
+                              disabled={Boolean(updatingRewardId)}
+                              onClick={() =>
+                                handleUpdateRewardStatus(
+                                  r.id,
+                                  'rejected',
+                                  'Rejected by tournament committee.'
+                                )
+                              }
+                              className={`px-2 py-1 rounded-lg border text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                updatingRewardId === r.id && updatingRewardAction === 'rejected'
+                                  ? 'bg-red-900/80 border-red-400 text-white cursor-wait opacity-90'
+                                  : updatingRewardId
+                                  ? 'bg-red-950/20 border-red-500/20 text-red-600/40 cursor-not-allowed opacity-50'
+                                  : 'bg-red-950/50 hover:bg-red-900/60 border-red-500/40 text-red-400 hover:text-white cursor-pointer active:scale-95'
+                              }`}
+                              title="Reject reward request"
+                            >
+                              {updatingRewardId === r.id && updatingRewardAction === 'rejected' ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-red-300" />
+                                  <span>Rejecting...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <XCircle className="w-3.5 h-3.5 text-red-400" />
+                                  <span>Reject</span>
+                                </>
+                              )}
+                            </button>
+                          )}
+                          {r.status === 'rejected' && (
+                            <span className="text-[11px] font-bold text-red-400/80 px-2 py-0.5 rounded bg-red-950/30 border border-red-900/40">
+                              Disqualified
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ));
+                })()}
               </tbody>
             </table>
           </div>

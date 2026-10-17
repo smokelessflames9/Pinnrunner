@@ -10,15 +10,10 @@ import {
   Calendar,
   CheckCircle2,
   Database,
-  Copy,
-  Check,
-  ChevronDown,
-  ChevronUp,
 } from 'lucide-react';
 import { PageNav, LeaderboardEntry, PlayerStats } from '../types';
 import { PINN_CONFIG } from '../config/pinnConfig';
 import { leaderboardService } from '../services/leaderboardService';
-import { testSupabaseConnection } from '../services/supabaseClient';
 
 interface LeaderboardPageProps {
   onNavigate: (page: PageNav) => void;
@@ -26,56 +21,12 @@ interface LeaderboardPageProps {
 
 type GameKey = 'coin-rush' | 'treasure-hunt' | 'puzzle-master' | 'speed-tap';
 
-const SQL_SCHEMA_SNIPPET = `-- Run this in your Supabase SQL Editor (SQL Editor -> New Query -> Run)
--- 1. Create secure public.scores table
-create table if not exists public.scores (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
-  player_name text not null default 'Player',
-  game_id text not null,
-  score integer not null,
-  coins integer not null default 0,
-  wallet_address text,
-  session_id text not null,
-  duration_ms integer not null default 0,
-  status text not null default 'pending' check (status in ('pending', 'verified', 'rejected')),
-  validation_reason text,
-  metadata jsonb default '{}'::jsonb,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
-
--- Unique index to prevent session replay attacks
-create unique index if not exists idx_scores_unique_session on public.scores (session_id);
-create index if not exists idx_scores_leaderboard on public.scores (game_id, score desc) where (status = 'verified');
-
--- 2. Enable RLS
-alter table public.scores enable row level security;
-
--- Only verified scores are readable on the public leaderboard
-create policy "Public can read verified scores"
-  on public.scores for select
-  using (status = 'verified');
-
--- Prevent users from updating score rows directly (anti-cheat status tampering protection)
-create policy "Prevent client updates on scores"
-  on public.scores for update
-  using (false);
-`;
-
 export const LeaderboardPage: React.FC<LeaderboardPageProps> = ({ onNavigate }) => {
   const [period, setPeriod] = useState<'all-time' | 'weekly'>('all-time');
   const [selectedGame, setSelectedGame] = useState<GameKey>('coin-rush');
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [playerStats, setPlayerStats] = useState<PlayerStats>(leaderboardService.getPlayerStats());
-  const [isLiveSupabase, setIsLiveSupabase] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
-  const [copiedSql, setCopiedSql] = useState<boolean>(false);
-  const [showSqlGuide, setShowSqlGuide] = useState<boolean>(false);
-  const [supabaseStatus, setSupabaseStatus] = useState<{
-    connected: boolean;
-    tableReady: boolean;
-    message: string;
-  } | null>(null);
 
   const fetchScores = async (
     selectedPeriod: 'all-time' | 'weekly',
@@ -85,11 +36,7 @@ export const LeaderboardPage: React.FC<LeaderboardPageProps> = ({ onNavigate }) 
     try {
       const res = await leaderboardService.getLeaderboard(selectedPeriod, gameId);
       setEntries(res.entries);
-      setIsLiveSupabase(res.isLiveSupabase);
       setPlayerStats(leaderboardService.getPlayerStats());
-
-      const status = await testSupabaseConnection();
-      setSupabaseStatus(status);
     } finally {
       setLoading(false);
     }
@@ -98,12 +45,6 @@ export const LeaderboardPage: React.FC<LeaderboardPageProps> = ({ onNavigate }) 
   useEffect(() => {
     fetchScores(period, selectedGame);
   }, [period, selectedGame]);
-
-  const handleCopySql = () => {
-    navigator.clipboard.writeText(SQL_SCHEMA_SNIPPET);
-    setCopiedSql(true);
-    setTimeout(() => setCopiedSql(false), 2500);
-  };
 
   const getRankBadge = (rank: number) => {
     if (rank === 1) {
@@ -159,79 +100,7 @@ export const LeaderboardPage: React.FC<LeaderboardPageProps> = ({ onNavigate }) 
         </p>
       </div>
 
-      {/* Supabase Status Banner */}
-      <div className="w-full mb-6">
-        {supabaseStatus?.tableReady ? (
-          <div className="p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/40 text-xs text-emerald-200 flex items-center justify-between gap-3 shadow-lg">
-            <div className="flex items-center gap-2.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-              <div>
-                <strong className="text-emerald-300 block font-semibold">
-                  Supabase Cloud Leaderboard Active
-                </strong>
-                <span className="text-emerald-200/80 text-[11px]">
-                  Scores are synchronizing live with your Supabase database (<span className="font-mono">qkckwsxhejnktuccbeaw.supabase.co</span>).
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-900/40 border border-emerald-700/50 text-[10px] font-mono font-bold uppercase text-emerald-300 shrink-0">
-              <Database className="w-3 h-3" />
-              <span>LIVE CLOUD</span>
-            </div>
-          </div>
-        ) : (
-          <div className="p-4 rounded-xl bg-zinc-950 border border-gold-subtle/40 text-xs text-zinc-300 flex flex-col gap-3 shadow-lg">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <Database className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-                <div>
-                  <strong className="text-amber-300 block font-semibold uppercase tracking-wide">
-                    Supabase Configuration Status: Project Connected
-                  </strong>
-                  <span className="text-zinc-400 text-xs">
-                    Your Supabase project (<span className="text-zinc-200 font-mono">qkckwsxhejnktuccbeaw</span>) is configured. To enable live cloud score sync, create the <span className="font-mono text-amber-300">game_scores</span> table in Supabase.
-                  </span>
-                </div>
-              </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => setShowSqlGuide(!showSqlGuide)}
-                  className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-750 text-amber-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <span>{showSqlGuide ? 'Hide SQL' : 'View SQL Setup'}</span>
-                  {showSqlGuide ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                </button>
-                <button
-                  onClick={handleCopySql}
-                  className="px-3 py-1.5 rounded-lg bg-gold-gradient text-black text-xs font-bold flex items-center gap-1.5 hover:opacity-90 shadow-sm cursor-pointer"
-                >
-                  {copiedSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedSql ? 'Copied!' : 'Copy SQL'}</span>
-                </button>
-              </div>
-            </div>
-
-            {showSqlGuide && (
-              <div className="mt-2 p-3.5 rounded-lg bg-black border border-zinc-800 text-[11px] font-mono text-zinc-300 overflow-x-auto">
-                <div className="flex items-center justify-between mb-2 text-zinc-400 border-b border-zinc-800 pb-2">
-                  <span>Run this snippet in your Supabase SQL Editor:</span>
-                  <button
-                    onClick={handleCopySql}
-                    className="text-amber-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer font-sans text-xs"
-                  >
-                    <Copy className="w-3 h-3" />
-                    <span>Copy Schema</span>
-                  </button>
-                </div>
-                <pre className="text-amber-200/90 whitespace-pre font-mono text-[11px] leading-relaxed">
-                  {SQL_SCHEMA_SNIPPET}
-                </pre>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
 
       {/* Local Player Personal Status Banner */}
       <div className="w-full mb-8 p-5 rounded-2xl bg-zinc-950 border border-gold-glow flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
@@ -250,6 +119,14 @@ export const LeaderboardPage: React.FC<LeaderboardPageProps> = ({ onNavigate }) 
               Personal Best ({gameButtons.find((g) => g.id === selectedGame)?.label}):{' '}
               <span className="font-mono-arcade font-bold text-gold-gradient text-sm">{currentPb}</span>
               {' · '}Total Games: <span className="font-mono-arcade text-zinc-300">{playerStats.totalGamesPlayed}</span>
+              {playerStats.lastRunDurationMs ? (
+                <>
+                  {' · '}Run Time:{' '}
+                  <span className="font-mono-arcade text-emerald-400 font-bold">
+                    {(playerStats.lastRunDurationMs / 1000).toFixed(1)}s
+                  </span>
+                </>
+              ) : null}
             </p>
           </div>
         </div>
@@ -323,7 +200,7 @@ export const LeaderboardPage: React.FC<LeaderboardPageProps> = ({ onNavigate }) 
           <div className="col-span-2 sm:col-span-1 text-center">Rank</div>
           <div className="col-span-6 sm:col-span-5">Player Name</div>
           <div className="col-span-4 sm:col-span-3 text-right">High Score</div>
-          <div className="hidden sm:block sm:col-span-3 text-right">Date / Source</div>
+          <div className="hidden sm:block sm:col-span-3 text-right">Date</div>
         </div>
 
         {/* Table Rows */}
@@ -376,25 +253,12 @@ export const LeaderboardPage: React.FC<LeaderboardPageProps> = ({ onNavigate }) 
                     </span>
                   </div>
 
-                  {/* Date & Demo / Cloud Tag */}
+                  {/* Date */}
                   <div className="hidden sm:flex sm:col-span-3 flex-col items-end justify-center text-xs text-zinc-400">
                     <div className="flex items-center gap-1.5">
                       <Calendar className="w-3 h-3 text-zinc-400" />
                       <span>{entry.dateAchieved}</span>
                     </div>
-                    {isLiveSupabase ? (
-                      <span className="text-[10px] text-emerald-400 uppercase font-mono-arcade">
-                        SUPABASE CLOUD
-                      </span>
-                    ) : entry.isDemo ? (
-                      <span className="text-[10px] text-amber-400/80 uppercase font-mono-arcade">
-                        DEMO BENCHMARK
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-emerald-400 uppercase font-mono-arcade">
-                        LOCAL RECORD
-                      </span>
-                    )}
                   </div>
                 </div>
               );

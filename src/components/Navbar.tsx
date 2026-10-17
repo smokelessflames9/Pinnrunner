@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, X, Wallet, Send, ShieldCheck, Volume2, VolumeX, User, LogOut, Lock } from 'lucide-react';
-import { PageNav, WalletState } from '../types';
+import { Menu, X, Wallet, Send, ShieldCheck, Volume2, VolumeX, User, LogOut, Lock, Loader2, Coins } from 'lucide-react';
+import { PageNav, WalletState, PlayerProfile } from '../types';
 import { PINN_CONFIG } from '../config/pinnConfig';
 import { soundService } from '../services/soundService';
 import { supabase, getCurrentUser } from '../services/supabaseClient';
+import { playerAuthService, PlayerAuthStatus } from '../services/playerAuthService';
 
 interface NavbarProps {
   currentPage: PageNav;
@@ -23,6 +24,16 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isMuted, setIsMuted] = useState<boolean>(soundService.getIsMuted());
   const [authUser, setAuthUser] = useState<{ id: string; email?: string } | null>(null);
+  const [playerProfile, setPlayerProfile] = useState<PlayerProfile | null>(() => playerAuthService.getProfile());
+  const [authStatus, setAuthStatus] = useState<PlayerAuthStatus>(() => playerAuthService.getStatus());
+
+  useEffect(() => {
+    const unsub = playerAuthService.subscribe((profile, status) => {
+      setPlayerProfile(profile);
+      setAuthStatus(status);
+    });
+    return unsub;
+  }, []);
 
   useEffect(() => {
     getCurrentUser().then((u) => setAuthUser(u ? { id: u.id, email: u.email } : null));
@@ -152,7 +163,29 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
 
           {/* PLAYER ACCOUNT / AUTH STATUS BUTTON */}
-          {authUser ? (
+          {playerProfile ? (
+            <button
+              onClick={onOpenWalletModal}
+              title="View Verified Player Account"
+              className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-850 border border-emerald-500/50 hover:border-emerald-400 rounded-xl px-3 py-1.5 text-xs transition-colors cursor-pointer group shadow-sm"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+              <div className="text-left">
+                <span className="text-white font-black max-w-[120px] truncate block font-serif tracking-tight leading-tight group-hover:text-amber-300 transition-colors">
+                  {playerProfile.displayName}
+                </span>
+                <span className="text-[10px] text-amber-300 font-mono-arcade font-bold flex items-center gap-1">
+                  <Coins className="w-2.5 h-2.5 inline" />
+                  {playerProfile.coinsBalance.toLocaleString()}
+                </span>
+              </div>
+            </button>
+          ) : authStatus === 'requesting_signature' || authStatus === 'verifying' ? (
+            <div className="flex items-center gap-1.5 bg-zinc-900 border border-amber-500/50 rounded-xl px-3 py-2 text-xs text-amber-300">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span className="font-semibold">Authenticating...</span>
+            </div>
+          ) : authUser ? (
             <div className="flex items-center gap-1.5 bg-zinc-900 border border-emerald-500/50 rounded-xl px-3 py-2 text-xs">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               <span className="text-emerald-300 font-semibold max-w-[100px] truncate">
@@ -168,7 +201,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           ) : (
             <button
-              onClick={onOpenAuthModal}
+              onClick={onOpenWalletModal}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-zinc-900 text-zinc-300 border border-zinc-700 hover:border-amber-400 hover:text-white transition-all cursor-pointer"
             >
               <User className="w-3.5 h-3.5 text-amber-400" />
@@ -324,7 +357,13 @@ export const Navbar: React.FC<NavbarProps> = ({
               className="w-full py-3 rounded-xl bg-gold-gradient text-black font-extrabold text-sm uppercase tracking-wider text-center shadow-md flex items-center justify-center gap-2"
             >
               <Wallet className="w-4 h-4" />
-              <span>{walletState.isConnected && walletState.address ? `Connected: ${truncateAddress(walletState.address)}` : 'Connect Solana Wallet'}</span>
+              <span>
+                {playerProfile
+                  ? `${playerProfile.displayName} · ${playerProfile.coinsBalance.toLocaleString()} Coins`
+                  : walletState.isConnected && walletState.address
+                  ? `Connected: ${truncateAddress(walletState.address)}`
+                  : 'Connect Solana Wallet'}
+              </span>
             </button>
 
             <div className="flex items-center justify-center gap-2 text-xs text-zinc-400">

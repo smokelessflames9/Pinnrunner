@@ -10,7 +10,6 @@ import {
   LogIn,
   ArrowLeft,
   KeyRound,
-  FileCode2,
 } from 'lucide-react';
 
 export interface AdminAuthContext {
@@ -222,23 +221,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               <span>Return to Arcade</span>
             </button>
           )}
-        </div>
-
-        {/* Administrator Role Assignment Guidance */}
-        <div className="w-full max-w-xl text-left bg-zinc-950/60 border border-zinc-800/80 rounded-2xl p-5 text-xs text-zinc-400">
-          <div className="flex items-center gap-2 text-amber-400 font-bold mb-2">
-            <FileCode2 className="w-4 h-4" />
-            <span>How to Grant Administrator Access</span>
-          </div>
-          <p className="text-[11px] text-zinc-400 leading-relaxed mb-3">
-            In your Supabase project SQL Editor, assign the administrator role to your user account by running:
-          </p>
-          <div className="bg-black/80 border border-zinc-800 rounded-lg p-3 font-mono text-[11px] text-amber-300 overflow-x-auto select-all">
-            {`INSERT INTO public.admin_roles (user_id, role)
-SELECT id, 'superadmin' FROM auth.users
-WHERE email = '${currentUserEmail || 'your-email@example.com'}'
-ON CONFLICT (user_id) DO UPDATE SET role = 'superadmin';`}
-          </div>
         </div>
       </div>
     );

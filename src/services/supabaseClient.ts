@@ -24,6 +24,7 @@ export interface SupabaseScoreRow {
   wallet_address?: string | null;
   score: number;
   coins?: number;
+  duration_ms?: number;
   status?: 'pending' | 'verified' | 'rejected';
   session_id?: string;
   validation_reason?: string;
@@ -177,6 +178,8 @@ export async function submitScoreSecurely(
       walletAddress: payload.walletAddress || null,
       score: payload.score,
       coins: payload.coins || 0,
+      durationMs: payload.durationMs,
+      sessionId: payload.sessionId,
     });
 
     return {
@@ -292,6 +295,8 @@ async function submitPendingFallback(
         walletAddress: payload.walletAddress,
         score: payload.score,
         coins: payload.coins,
+        durationMs: payload.durationMs,
+        sessionId: payload.sessionId,
       });
 
       return {
@@ -325,27 +330,58 @@ export async function submitScoreToSupabase(scoreData: {
   walletAddress?: string | null;
   score: number;
   coins?: number;
+  durationMs?: number;
+  sessionId?: string;
 }): Promise<{ success: boolean; error?: string }> {
   if (!isSupabaseConfigured()) {
     return { success: false, error: 'Supabase not configured' };
   }
 
   try {
-    const { error } = await supabase.from('game_scores').insert([
-      {
-        game_id: scoreData.gameId,
-        player_name: scoreData.playerName,
-        wallet_address: scoreData.walletAddress || null,
-        score: scoreData.score,
-        coins: scoreData.coins || 0,
-      },
-    ]);
-
-    if (error) {
-      return { success: false, error: error.message };
+    // 1. Attempt insert with duration_ms and session_id
+    const rowWithDuration: Record<string, unknown> = {
+      game_id: scoreData.gameId,
+      player_name: scoreData.playerName,
+      wallet_address: scoreData.walletAddress || null,
+      score: scoreData.score,
+      coins: scoreData.coins || 0,
+      duration_ms: scoreData.durationMs || 0,
+    };
+    if (scoreData.sessionId) {
+      rowWithDuration.session_id = scoreData.sessionId;
     }
 
-    return { success: true };
+    const { error } = await supabase.from('game_scores').insert([rowWithDuration]);
+
+    if (!error) {
+      return { success: true };
+    }
+
+    // 2. If duration_ms column is not present on older schema, fallback without it
+    const isColumnError =
+      error.message &&
+      (error.message.toLowerCase().includes('duration_ms') ||
+       error.message.toLowerCase().includes('column') ||
+       error.code === 'PGRST204');
+
+    if (isColumnError) {
+      const { error: fallbackErr } = await supabase.from('game_scores').insert([
+        {
+          game_id: scoreData.gameId,
+          player_name: scoreData.playerName,
+          wallet_address: scoreData.walletAddress || null,
+          score: scoreData.score,
+          coins: scoreData.coins || 0,
+        },
+      ]);
+
+      if (fallbackErr) {
+        return { success: false, error: fallbackErr.message };
+      }
+      return { success: true };
+    }
+
+    return { success: false, error: error.message };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return { success: false, error: msg };

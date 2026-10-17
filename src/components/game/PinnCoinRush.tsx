@@ -56,6 +56,9 @@ export const PinnCoinRush: React.FC<PinnCoinRushProps> = ({ onNavigateToLeaderbo
   const [displayNameInput, setDisplayNameInput] = useState<string>(playerStats.displayName);
   const [isNewHighScore, setIsNewHighScore] = useState<boolean>(false);
   const [nameSavedFeedback, setNameSavedFeedback] = useState<boolean>(false);
+  const [lastRunDurationMs, setLastRunDurationMs] = useState<number>(
+    () => leaderboardService.getPlayerStats().lastRunDurationMs || 0
+  );
 
   // Core Game Loop References
   const animationFrameId = useRef<number | null>(null);
@@ -268,7 +271,13 @@ export const PinnCoinRush: React.FC<PinnCoinRushProps> = ({ onNavigateToLeaderbo
     setTimeout(() => soundService.playGameOver(), 200);
 
     // Save score to local leaderboard service and submit through anti-cheat pipeline
-    const elapsedMs = Math.max(3000, Date.now() - g.sessionStartTime);
+    const elapsedMs =
+      g.elapsedTime > 0
+        ? Math.max(1000, Math.round(g.elapsedTime * 1000))
+        : g.sessionStartTime > 0
+        ? Math.max(1000, Date.now() - g.sessionStartTime)
+        : 3500;
+    setLastRunDurationMs(elapsedMs);
     const result = leaderboardService.recordGameResult(g.score, g.coins, {
       sessionId: g.sessionId,
       durationMs: elapsedMs,
@@ -1192,18 +1201,24 @@ export const PinnCoinRush: React.FC<PinnCoinRushProps> = ({ onNavigateToLeaderbo
             </p>
 
             {/* Score Summary Box */}
-            <div className="grid grid-cols-3 gap-2 sm:gap-4 max-w-md w-full bg-zinc-900/90 border border-gold-subtle/50 rounded-xl p-3 sm:p-4 mb-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 max-w-md w-full bg-zinc-900/90 border border-gold-subtle/50 rounded-xl p-3 sm:p-4 mb-4">
               <div className="text-center">
-                <span className="text-[11px] text-zinc-400 uppercase block font-mono-arcade">Final Score</span>
-                <span className="text-xl sm:text-2xl font-bold font-mono-arcade text-gold-gradient">{score}</span>
+                <span className="text-[10px] text-zinc-400 uppercase block font-mono-arcade">Final Score</span>
+                <span className="text-lg sm:text-xl font-bold font-mono-arcade text-gold-gradient">{score}</span>
               </div>
-              <div className="text-center border-x border-zinc-800">
-                <span className="text-[11px] text-zinc-400 uppercase block font-mono-arcade">Coins</span>
-                <span className="text-xl sm:text-2xl font-bold font-mono-arcade text-amber-300">{coinsCollected}</span>
+              <div className="text-center sm:border-x border-zinc-800">
+                <span className="text-[10px] text-zinc-400 uppercase block font-mono-arcade">Coins</span>
+                <span className="text-lg sm:text-xl font-bold font-mono-arcade text-amber-300">{coinsCollected}</span>
+              </div>
+              <div className="text-center sm:border-r border-zinc-800">
+                <span className="text-[10px] text-zinc-400 uppercase block font-mono-arcade">Distance</span>
+                <span className="text-lg sm:text-xl font-bold font-mono-arcade text-zinc-200">{distanceMeters}m</span>
               </div>
               <div className="text-center">
-                <span className="text-[11px] text-zinc-400 uppercase block font-mono-arcade">Distance</span>
-                <span className="text-xl sm:text-2xl font-bold font-mono-arcade text-zinc-200">{distanceMeters}m</span>
+                <span className="text-[10px] text-zinc-400 uppercase block font-mono-arcade">Run Time</span>
+                <span className="text-lg sm:text-xl font-bold font-mono-arcade text-emerald-400">
+                  {(lastRunDurationMs / 1000).toFixed(1)}s
+                </span>
               </div>
             </div>
 

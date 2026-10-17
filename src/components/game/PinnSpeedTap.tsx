@@ -112,7 +112,10 @@ export const PinnSpeedTap: React.FC<PinnSpeedTapProps> = ({
       setGameState('gameover');
       soundService.playGameOver();
 
-      const elapsedMs = Math.max(25000, Date.now() - matchStartTime.current);
+      const elapsedMs =
+        matchStartTime.current > 0
+          ? Math.max(5000, Math.min(35000, Date.now() - matchStartTime.current))
+          : 30000;
       const { pb, isNewPb } = leaderboardService.recordGameBest('speed-tap', score, {
         sessionId: matchSessionId.current,
         durationMs: elapsedMs,

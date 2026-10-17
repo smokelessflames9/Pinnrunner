@@ -48,8 +48,31 @@ const SOLANA_RPC_ENDPOINTS = [
 // In-memory set of recorded signatures to prevent in-session duplicate reuse
 const RECORDED_TX_SIGNATURES = new Set<string>();
 
+export const PINN_DECIMALS = 6;
+
+/**
+ * Convert decimal or formatted token amount to exact raw integer base units (BigInt)
+ */
+export function toRawBaseUnits(amountStr: string | number, decimals: number = PINN_DECIMALS): bigint {
+  if (typeof amountStr === 'number') {
+    amountStr = amountStr.toFixed(decimals);
+  }
+  const cleaned = String(amountStr).replace(/[^0-9.]/g, '');
+  if (!cleaned) return 0n;
+  const parts = cleaned.split('.');
+  const wholePart = parts[0] || '0';
+  let fractionPart = (parts[1] || '').slice(0, decimals);
+  fractionPart = fractionPart.padEnd(decimals, '0');
+  try {
+    return BigInt(wholePart) * (10n ** BigInt(decimals)) + BigInt(fractionPart);
+  } catch {
+    return 0n;
+  }
+}
+
 export class SolanaVerificationService {
   public readonly OFFICIAL_MINT = PINN_CONFIG.TOKEN_MINT_ADDRESS;
+  public readonly DECIMALS = PINN_DECIMALS;
 
   /**
    * Parse numerical token amount from string like "50,000 $PINN" or "50000"
@@ -182,73 +205,58 @@ export class SolanaVerificationService {
       };
     }
 
-    // 6. Inspect Token Balances and Instructions to verify PINN mint, destination, and amount
+    // 6. Inspect Token Balances to verify PINN mint, destination, and amount in raw integer base units
     const postTokenBalances = rpcResponse.meta?.postTokenBalances || [];
     const preTokenBalances = rpcResponse.meta?.preTokenBalances || [];
-    const accountKeys = rpcResponse.transaction?.message?.accountKeys || [];
 
     let matchedMint = false;
     let recipientMatched = false;
-    let amountFound = 0;
+    let rawAmountFound = 0n;
+    let observedDecimals: number | null = null;
+    const expectedRawAmount = toRawBaseUnits(request.expectedAmountPinn, this.DECIMALS);
 
     // Check postTokenBalances for our official mint
     for (const post of postTokenBalances) {
       if (post.mint === this.OFFICIAL_MINT) {
         matchedMint = true;
+        if (typeof post.uiTokenAmount?.decimals === 'number') {
+          observedDecimals = post.uiTokenAmount.decimals;
+        }
 
-        // Check if owner or token account corresponds to expected wallet
+        // Check if owner corresponds to expected wallet
         const owner = post.owner;
         if (owner && owner.toLowerCase() === expectedWallet.toLowerCase()) {
           recipientMatched = true;
 
-          // Compute net balance change for this account
+          // Compute raw base units delta (BigInt) to eliminate float rounding errors
           const pre = preTokenBalances.find(
             (p: any) => p.accountIndex === post.accountIndex && p.mint === post.mint
           );
-          const preAmount = pre?.uiTokenAmount?.uiAmount || 0;
-          const postAmount = post.uiTokenAmount?.uiAmount || 0;
-          const delta = postAmount - preAmount;
-          if (delta > 0) {
-            amountFound = delta;
+          const postRaw = BigInt(post.uiTokenAmount?.amount || '0');
+          const preRaw = BigInt(pre?.uiTokenAmount?.amount || '0');
+          const delta = postRaw - preRaw;
+          if (delta > 0n) {
+            rawAmountFound += delta;
           }
         }
       }
     }
 
-    // Also check parsed instructions if SPL Token transfer
-    const instructions = rpcResponse.transaction?.message?.instructions || [];
-    const innerInstructions = rpcResponse.meta?.innerInstructions || [];
-    const allInstructions = [
-      ...instructions,
-      ...innerInstructions.flatMap((i: any) => i.instructions || []),
-    ];
-
-    for (const ix of allInstructions) {
-      if (ix.program === 'spl-token' && ix.parsed?.type?.includes('transfer')) {
-        const info = ix.parsed.info;
-        if (info) {
-          // Check mint if transferChecked or info has mint
-          if (info.mint === this.OFFICIAL_MINT) {
-            matchedMint = true;
-          }
-          // The recipient must match the actual recipient wallet owner (post.owner or instruction owner)
-          if (info.owner && info.owner.toLowerCase() === expectedWallet.toLowerCase()) {
-            recipientMatched = true;
-          }
-          const amt = info.tokenAmount?.uiAmount || parseFloat(info.amount) || 0;
-          if (amt > 0 && !amountFound && recipientMatched) {
-            amountFound = amt;
-          }
-        }
-      }
-    }
-
-    // If transaction involves SOL transfer but not PINN token
+    // Check (1) & (4): Exact $PINN mint address check
     if (!matchedMint) {
       return {
         verified: false,
         signature: cleanSig,
         error: `INVALID TOKEN MINT: Transaction does not transfer official PINN tokens (${this.OFFICIAL_MINT}). Substituting another token is strictly forbidden.`,
+      };
+    }
+
+    // Verify token decimals match official PINN decimals (6)
+    if (observedDecimals !== null && observedDecimals !== this.DECIMALS) {
+      return {
+        verified: false,
+        signature: cleanSig,
+        error: `DECIMALS MISMATCH: Token mint reported ${observedDecimals} decimals, expected ${this.DECIMALS}.`,
       };
     }
 
@@ -261,18 +269,22 @@ export class SolanaVerificationService {
       };
     }
 
-    // Amount check: Transferred amount must strictly meet or exceed approved reward amount
-    if (expectedAmount > 0 && (amountFound <= 0 || amountFound < expectedAmount)) {
+    // Amount check: Transferred amount in raw base units must strictly meet or exceed approved reward amount
+    if (expectedRawAmount > 0n && (rawAmountFound <= 0n || rawAmountFound < expectedRawAmount)) {
+      const foundUi = Number(rawAmountFound) / (10 ** this.DECIMALS);
+      const expectedUi = Number(expectedRawAmount) / (10 ** this.DECIMALS);
       return {
         verified: false,
         signature: cleanSig,
-        amountTransferred: amountFound,
-        error: `INSUFFICIENT AMOUNT: Transferred ${amountFound.toLocaleString()} $PINN, which is less than approved reward (${expectedAmount.toLocaleString()} $PINN).`,
+        amountTransferred: foundUi,
+        error: `INSUFFICIENT AMOUNT: Transferred ${foundUi.toLocaleString()} $PINN (${rawAmountFound.toString()} raw base units), which is less than approved reward (${expectedUi.toLocaleString()} $PINN / ${expectedRawAmount.toString()} raw base units).`,
       };
     }
 
     // All on-chain checks passed!
     this.registerSignature(cleanSig);
+
+    const finalUi = Number(rawAmountFound) / (10 ** this.DECIMALS);
 
     return {
       verified: true,
@@ -281,8 +293,8 @@ export class SolanaVerificationService {
       blockTime: rpcResponse.blockTime,
       tokenMint: this.OFFICIAL_MINT,
       destinationWallet: expectedWallet,
-      amountTransferred: amountFound,
-      amountTransferredFormatted: `${amountFound.toLocaleString()} $PINN`,
+      amountTransferred: finalUi,
+      amountTransferredFormatted: `${finalUi.toLocaleString()} $PINN`,
       feeLamports: rpcResponse.meta?.fee,
       statusText: 'CONFIRMED ON SOLANA MAINNET',
     };

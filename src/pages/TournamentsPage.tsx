@@ -16,16 +16,23 @@ import {
   Coins,
   ArrowRight,
 } from 'lucide-react';
-import { PageNav, Tournament, TournamentRankingEntry, TournamentStatus, GameId } from '../types';
+import { PageNav, Tournament, TournamentRankingEntry, TournamentStatus, GameId, PlayerProfile } from '../types';
 import { tournamentService } from '../services/tournamentService';
 import { getCurrentUser } from '../services/supabaseClient';
+import { playerAuthService } from '../services/playerAuthService';
+import { walletService } from '../services/walletService';
 
 interface TournamentsPageProps {
   onNavigate: (page: PageNav) => void;
   onOpenAuthModal?: () => void;
+  onOpenWalletModal?: () => void;
 }
 
-export const TournamentsPage: React.FC<TournamentsPageProps> = ({ onNavigate, onOpenAuthModal }) => {
+export const TournamentsPage: React.FC<TournamentsPageProps> = ({
+  onNavigate,
+  onOpenAuthModal,
+  onOpenWalletModal,
+}) => {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [selectedTournament, setSelectedTournament] = useState<Tournament | null>(null);
   const [rankings, setRankings] = useState<TournamentRankingEntry[]>([]);
@@ -38,12 +45,25 @@ export const TournamentsPage: React.FC<TournamentsPageProps> = ({ onNavigate, on
   const [activeTab, setActiveTab] = useState<TournamentStatus | 'all'>('active');
   const [isLoading, setIsLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [playerProfile, setPlayerProfile] = useState<PlayerProfile | null>(() => playerAuthService.getProfile());
+  const [walletState, setWalletState] = useState(() => walletService.getState());
 
   useEffect(() => {
     loadTournaments();
     getCurrentUser().then((u) => {
       if (u) setCurrentUserId(u.id);
     });
+
+    const unsubProfile = playerAuthService.subscribe((profile) => {
+      setPlayerProfile(profile);
+    });
+    const unsubWallet = walletService.subscribe((ws) => {
+      setWalletState(ws);
+    });
+    return () => {
+      unsubProfile();
+      unsubWallet();
+    };
   }, []);
 
   const loadTournaments = async () => {
@@ -67,8 +87,11 @@ export const TournamentsPage: React.FC<TournamentsPageProps> = ({ onNavigate, on
     setRankings(list);
 
     const user = await getCurrentUser();
-    if (user) {
-      const pScore = await tournamentService.getPlayerTournamentScore(t, user.id);
+    const profile = playerAuthService.getProfile();
+    const playerIdentifier = profile?.walletAddress || profile?.id || user?.id;
+
+    if (playerIdentifier) {
+      const pScore = await tournamentService.getPlayerTournamentScore(t, playerIdentifier);
       setPlayerScore(pScore);
     } else {
       setPlayerScore(null);
@@ -365,11 +388,16 @@ export const TournamentsPage: React.FC<TournamentsPageProps> = ({ onNavigate, on
                         </div>
                       ) : (
                         <div className="text-xs text-zinc-400">
-                          {currentUserId ? (
+                          {playerProfile || currentUserId ? (
                             'No verified tournament score submitted yet. Play to rank!'
+                          ) : walletState.isConnected ? (
+                            <span className="text-amber-400 flex items-center gap-1.5">
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>Authenticating wallet and synchronizing profile...</span>
+                            </span>
                           ) : (
                             <span>
-                              Sign in to submit verified scores & track rankings.
+                              Connect wallet to submit verified scores & track rankings.
                             </span>
                           )}
                         </div>
@@ -377,12 +405,12 @@ export const TournamentsPage: React.FC<TournamentsPageProps> = ({ onNavigate, on
                     </div>
                   </div>
 
-                  {!currentUserId && onOpenAuthModal && (
+                  {!playerProfile && !currentUserId && !walletState.isConnected && (
                     <button
-                      onClick={onOpenAuthModal}
-                      className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-gold-subtle/50 text-xs font-bold uppercase tracking-wider text-amber-400 transition-colors cursor-pointer"
+                      onClick={onOpenWalletModal || onOpenAuthModal}
+                      className="px-4 py-2 rounded-xl bg-gold-gradient text-black font-extrabold text-xs uppercase tracking-wider shadow hover:scale-105 transition-all cursor-pointer"
                     >
-                      Player Sign In
+                      Connect Solana Wallet
                     </button>
                   )}
                 </div>

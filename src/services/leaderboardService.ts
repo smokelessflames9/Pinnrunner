@@ -8,6 +8,7 @@ import {
 } from './supabaseClient';
 import { walletService } from './walletService';
 import { adminService } from './adminService';
+import { playerAuthService } from './playerAuthService';
 
 const STATS_KEY = 'pinn_arcade_player_stats';
 const LOCAL_SCORES_KEY = 'pinn_arcade_recent_scores';
@@ -172,18 +173,21 @@ class LeaderboardService {
   }
 
   public getPlayerStats(): PlayerStats {
+    const authProfile = playerAuthService.getProfile();
     try {
       if (typeof localStorage !== 'undefined') {
         const data = localStorage.getItem(STATS_KEY);
         if (data) {
           const parsed = JSON.parse(data);
           return {
-            displayName: parsed.displayName || 'PinnRunner',
+            displayName: authProfile?.displayName || parsed.displayName || 'PinnRunner',
             personalBest: Number(parsed.personalBest) || 0,
             sessionBest: this.sessionBest,
-            totalGamesPlayed: Number(parsed.totalGamesPlayed) || 0,
-            totalCoinsCollected: Number(parsed.totalCoinsCollected) || 0,
-            lastPlayedAt: parsed.lastPlayedAt,
+            totalGamesPlayed: authProfile ? authProfile.totalGamesPlayed : (Number(parsed.totalGamesPlayed) || 0),
+            totalCoinsCollected: authProfile ? authProfile.coinsBalance : (Number(parsed.totalCoinsCollected) || 0),
+            totalPlayTimeMs: authProfile ? authProfile.totalPlayTimeMs : (Number(parsed.totalPlayTimeMs) || 0),
+            lastRunDurationMs: authProfile ? authProfile.lastRunDurationMs : (Number(parsed.lastRunDurationMs) || 0),
+            lastPlayedAt: parsed.lastPlayedAt || authProfile?.updatedAt,
           };
         }
       }
@@ -192,16 +196,19 @@ class LeaderboardService {
     }
 
     return {
-      displayName: 'PinnRunner',
+      displayName: authProfile?.displayName || 'PinnRunner',
       personalBest: 0,
       sessionBest: this.sessionBest,
-      totalGamesPlayed: 0,
-      totalCoinsCollected: 0,
+      totalGamesPlayed: authProfile?.totalGamesPlayed || 0,
+      totalCoinsCollected: authProfile?.coinsBalance || 0,
+      totalPlayTimeMs: authProfile?.totalPlayTimeMs || 0,
+      lastRunDurationMs: authProfile?.lastRunDurationMs || 0,
+      lastPlayedAt: authProfile?.updatedAt,
     };
   }
 
   public updateDisplayName(name: string): PlayerStats {
-    const clean = name.trim().slice(0, 20) || 'PinnRunner';
+    const clean = name.trim().slice(0, 24) || 'PinnRunner';
     const current = this.getPlayerStats();
     const updated: PlayerStats = {
       ...current,
@@ -214,6 +221,13 @@ class LeaderboardService {
     } catch {
       // ignore
     }
+
+    if (playerAuthService.isAuthenticated()) {
+      playerAuthService.updateDisplayName(clean).catch((err) => {
+        console.warn('Profile username sync note:', err?.message || err);
+      });
+    }
+
     return updated;
   }
 
@@ -237,12 +251,16 @@ class LeaderboardService {
       this.sessionBest = score;
     }
 
+    const durationMs = extraTelemetry?.durationMs || Math.max(3500, Math.floor(score * 15));
+
     const updated: PlayerStats = {
       displayName: current.displayName,
       personalBest: isNewPersonalBest ? score : current.personalBest,
       sessionBest: this.sessionBest,
       totalGamesPlayed: current.totalGamesPlayed + 1,
       totalCoinsCollected: current.totalCoinsCollected + coins,
+      totalPlayTimeMs: (current.totalPlayTimeMs || 0) + durationMs,
+      lastRunDurationMs: durationMs,
       lastPlayedAt: new Date().toISOString(),
     };
 
@@ -255,6 +273,7 @@ class LeaderboardService {
         recent.unshift({
           score,
           coins,
+          durationMs,
           date: new Date().toISOString(),
         });
         localStorage.setItem(LOCAL_SCORES_KEY, JSON.stringify(recent.slice(0, 20)));
@@ -263,10 +282,14 @@ class LeaderboardService {
       // ignore
     }
 
+    // Authoritatively synchronize coins into player account ledger
+    if (coins > 0 || durationMs > 0) {
+      playerAuthService.recordGameCoins(coins, durationMs, 'coin-rush');
+    }
+
     // Submit securely to Supabase Edge Function with anti-cheat telemetry
     const walletAddress = walletService.getState().address;
     const sessionId = extraTelemetry?.sessionId || `cr_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    const durationMs = extraTelemetry?.durationMs || Math.max(3500, Math.floor(score * 15));
 
     // Ingest into admin moderation queue
     const liveScoreRecord: ScoreRecord = {
@@ -346,6 +369,7 @@ class LeaderboardService {
           walletAddress: row.wallet_address || undefined,
           score: row.score,
           coinsCollected: row.coins || 0,
+          durationMs: row.duration_ms,
           dateAchieved: row.created_at ? row.created_at.split('T')[0] : 'Today',
           period,
           isVerified: row.status ? row.status === 'verified' : Boolean(row.wallet_address),
@@ -361,6 +385,7 @@ class LeaderboardService {
             displayName: `${stats.displayName} (You)`,
             score: pb,
             coinsCollected: gameId === 'coin-rush' ? stats.totalCoinsCollected : 0,
+            durationMs: stats.lastRunDurationMs,
             dateAchieved: 'Today',
             period,
             isVerified: Boolean(walletService.getState().address),
@@ -458,6 +483,27 @@ class LeaderboardService {
         const walletAddress = walletService.getState().address;
         const sessionId = options?.sessionId || `${gameId}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
         const durationMs = options?.durationMs || 30000;
+
+        // Update player stats with playtime duration
+        const updatedStats: PlayerStats = {
+          ...stats,
+          totalGamesPlayed: stats.totalGamesPlayed + 1,
+          totalPlayTimeMs: (stats.totalPlayTimeMs || 0) + durationMs,
+          lastRunDurationMs: durationMs,
+          lastPlayedAt: new Date().toISOString(),
+        };
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(STATS_KEY, JSON.stringify(updatedStats));
+          }
+        } catch {
+          // ignore
+        }
+
+        // Authoritatively synchronize coins into player account ledger
+        if ((options?.coins && options.coins > 0) || durationMs > 0) {
+          playerAuthService.recordGameCoins(options?.coins || 0, durationMs, gameId);
+        }
 
         // Ingest into admin moderation queue
         const liveScoreRecord: ScoreRecord = {

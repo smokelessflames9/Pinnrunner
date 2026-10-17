@@ -16,6 +16,7 @@
     "@supabase/supabase-js": "^2.117.3",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^6.1.1",
+    "bs58": "^6.0.0",
     "canvas-confetti": "^1.9.4",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
@@ -23,6 +24,7 @@
     "motion": "^12.23.24",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
+    "tweetnacl": "^1.0.3",
     "vite": "^8.3.0"
   },
   "devDependencies": {
