@@ -69,5 +69,21 @@ export const PINN_CONFIG = {
 
   // Disclaimers & Legal Notes
   WEBSITE_DISCLAIMER: "PINN Arcade and the game PINN Coin Rush are free-to-play entertainment experiences. In-game gold coins are virtual game points and do not represent or transfer real cryptocurrency. Cryptocurrency prices are highly volatile and market participation carries substantial risk. Neither playing the game nor holding $PINN guarantees financial profit or returns.",
-  LOCAL_SCORE_DISCLAIMER: "Scores stored in this browser session are for personal local record-keeping and convenience. They do not constitute tamper-proof or verified global tournament entries until processed by a future backend validation service."
+  LOCAL_SCORE_DISCLAIMER: "Scores stored in this browser session are for personal local record-keeping and convenience. They do not constitute tamper-proof or verified global tournament entries until processed by a future backend validation service.",
+
+  // Editable Policy Placeholders for the "Game Rules & Rewards" Page
+  // Unconfirmed policy items are explicitly marked as "Details to be announced."
+  GAME_RULES_PLACEHOLDERS: {
+    EFFECTIVE_DATE: "Details to be announced.",
+    LEADERBOARD_RESET_SCHEDULE: "Details to be announced.",
+    LEADERBOARD_TIE_BREAK_RULES: "Details to be announced.",
+    ELIGIBLE_PLAYERS_AND_REGIONS: "Details to be announced.",
+    MINIMUM_ELIGIBILITY_REQUIREMENTS: "Details to be announced.",
+    REWARD_AMOUNTS_OR_PRIZE_POOL: "Details to be announced.",
+    CLAIM_LIMITS_AND_CLAIM_WINDOWS: "Details to be announced.",
+    REWARD_REVIEW_AND_PROCESSING_TIMES: "Details to be announced.",
+    TIE_BREAK_AND_DISPUTE_RULES: "Details to be announced.",
+    OFFICIAL_SUPPORT_CONTACT: "Details to be announced."
+  }
 } as const;
+

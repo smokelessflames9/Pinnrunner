@@ -64,6 +64,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { label: 'Tournaments', page: 'tournaments' },
     { label: 'Leaderboard', page: 'leaderboard' },
     { label: 'Rewards', page: 'rewards' },
+    { label: 'Game Rules', page: 'game-rules' },
     { label: '$PINN Token', page: 'token' },
   ];
 

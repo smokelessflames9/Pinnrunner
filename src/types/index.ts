@@ -12,7 +12,8 @@ export type PageNav =
   | 'rewards'
   | 'about'
   | 'terms'
-  | 'privacy';
+  | 'privacy'
+  | 'game-rules';
 
 export type GameId = 'coin-rush' | 'treasure-hunt' | 'puzzle-master' | 'speed-tap';
 

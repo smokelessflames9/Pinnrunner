@@ -7,7 +7,7 @@ interface TermsPageProps {
   onNavigate: (page: PageNav) => void;
 }
 
-export const TermsPage: React.FC<TermsPageProps> = () => {
+export const TermsPage: React.FC<TermsPageProps> = ({ onNavigate }) => {
   return (
     <div className="w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
       <div className="text-center mb-10">
@@ -80,16 +80,25 @@ export const TermsPage: React.FC<TermsPageProps> = () => {
         </section>
 
         <section className="pt-4 border-t border-zinc-900 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <span className="text-xs text-zinc-400">Questions about the game rules or community competitions?</span>
-          <a
-            href={PINN_CONFIG.OFFICIAL_TELEGRAM_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-5 py-2.5 rounded-xl bg-gold-gradient text-black font-extrabold text-xs uppercase tracking-wider flex items-center gap-1.5"
-          >
-            <Send className="w-3.5 h-3.5 fill-current" />
-            <span>Ask on Telegram</span>
-          </a>
+          <span className="text-xs text-zinc-400">Looking for detailed gameplay rules, leaderboard policies, or reward eligibility terms?</span>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => onNavigate('game-rules')}
+              className="px-5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-gold-subtle/50 text-amber-300 font-bold text-xs uppercase tracking-wider cursor-pointer"
+            >
+              Game Rules &amp; Rewards
+            </button>
+            <a
+              href={PINN_CONFIG.OFFICIAL_TELEGRAM_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-5 py-2.5 rounded-xl bg-gold-gradient text-black font-extrabold text-xs uppercase tracking-wider flex items-center gap-1.5"
+            >
+              <Send className="w-3.5 h-3.5 fill-current" />
+              <span>Ask on Telegram</span>
+            </a>
+          </div>
         </section>
       </div>
     </div>

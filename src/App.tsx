@@ -17,12 +17,29 @@ import { RewardsPage } from './pages/RewardsPage';
 import { AboutPage } from './pages/AboutPage';
 import { TermsPage } from './pages/TermsPage';
 import { PrivacyPage } from './pages/PrivacyPage';
+import { GameRulesPage } from './pages/GameRulesPage';
 import { PageNav, WalletState } from './types';
 import { walletService } from './services/walletService';
 import { soundService } from './services/soundService';
 
+function getInitialPageFromUrl(): PageNav {
+  if (typeof window === 'undefined') return 'home';
+  const path = window.location.pathname.toLowerCase().replace(/\/+$/, '');
+  const hash = window.location.hash.toLowerCase().replace(/^#\/?/, '');
+  if (
+    path === '/rules' ||
+    path === '/game-rules' ||
+    path === '/game-rules-and-rewards' ||
+    hash === 'rules' ||
+    hash === 'game-rules'
+  ) {
+    return 'game-rules';
+  }
+  return 'home';
+}
+
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<PageNav>('home');
+  const [currentPage, setCurrentPage] = useState<PageNav>(getInitialPageFromUrl);
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [walletState, setWalletState] = useState<WalletState>(walletService.getState());
@@ -92,6 +109,7 @@ export default function App() {
         {currentPage === 'about' && <AboutPage onNavigate={handleNavigate} />}
         {currentPage === 'terms' && <TermsPage onNavigate={handleNavigate} />}
         {currentPage === 'privacy' && <PrivacyPage onNavigate={handleNavigate} />}
+        {currentPage === 'game-rules' && <GameRulesPage onNavigate={handleNavigate} />}
       </main>
 
       {/* Footer */}

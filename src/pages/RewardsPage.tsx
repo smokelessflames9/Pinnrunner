@@ -1694,6 +1694,19 @@ export const RewardsPage: React.FC<RewardsPageProps> = ({
                 </ul>
               </div>
             </div>
+
+            <div className="mt-6 pt-5 border-t border-zinc-900 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <p className="text-xs text-zinc-400">
+                Read the complete policy covering fair play, score validation, eligibility placeholders, claims, and risk disclosures.
+              </p>
+              <button
+                type="button"
+                onClick={() => onNavigate('game-rules')}
+                className="px-5 py-2.5 rounded-xl bg-gold-gradient text-black font-extrabold text-xs uppercase tracking-wider hover:opacity-95 transition-opacity shrink-0 cursor-pointer"
+              >
+                View Full Game Rules &amp; Rewards Policy
+              </button>
+            </div>
           </div>
         </section>
       )}

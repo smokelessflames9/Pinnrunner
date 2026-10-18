@@ -175,10 +175,18 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             <ul className="space-y-2 text-xs">
               <li>
                 <button
+                  onClick={() => onNavigate('game-rules')}
+                  className="hover:text-amber-400 transition-colors text-left cursor-pointer font-semibold text-amber-300/90"
+                >
+                  Game Rules &amp; Rewards
+                </button>
+              </li>
+              <li>
+                <button
                   onClick={() => onNavigate('terms')}
                   className="hover:text-amber-400 transition-colors text-left cursor-pointer"
                 >
-                  Terms of Use & Game Rules
+                  Terms of Use
                 </button>
               </li>
               <li>
