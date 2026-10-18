@@ -12,7 +12,7 @@ import nacl from 'tweetnacl';
 import { createServer as createViteServer } from 'vite';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
-import { generateThemedUsername } from './src/services/usernameGenerator';
+import { generateThemedUsername } from './src/services/usernameGenerator.ts';
 
 function safeBs58Decode(input: string): Uint8Array {
   const decoder = typeof bs58.decode === 'function' ? bs58.decode : (bs58 as any).default?.decode;
