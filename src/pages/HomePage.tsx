@@ -241,10 +241,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                   {item.description}
                 </p>
               </div>
-
-              <div className="pt-4 mt-4 border-t border-zinc-900 text-[11px] text-zinc-400 font-mono-arcade">
-                Status: In Design Phase
-              </div>
             </div>
           ))}
         </div>
