@@ -9,10 +9,17 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:devnet": "bash ./scripts/run-devnet-tests.sh"
   },
   "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
     "@google/genai": "^2.4.0",
+    "@metaplex-foundation/digital-asset-standard-api": "^2.1.1",
+    "@metaplex-foundation/mpl-bubblegum": "^6.0.0",
+    "@metaplex-foundation/mpl-token-metadata": "^3.4.0",
+    "@metaplex-foundation/umi": "^1.6.0",
+    "@metaplex-foundation/umi-bundle-defaults": "^1.6.0",
     "@supabase/supabase-js": "^2.117.3",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^6.1.1",
