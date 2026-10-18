@@ -19,6 +19,7 @@ import {
 } from '../types';
 import bs58 from 'bs58';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { apiFetch } from './apiClient';
 
 function safeBs58Encode(data: Uint8Array): string {
   const encoder = typeof bs58.encode === 'function' ? bs58.encode : (bs58 as any).default?.encode;
@@ -154,7 +155,7 @@ class PlayerAuthService {
       const domain = typeof window !== 'undefined' ? window.location.host : 'pinnarcade.io';
 
       // 1. Fetch server-generated short-lived nonce and canonical sign-in message
-      const challengeRes = await fetch('/api/auth/solana-nonce', {
+      const challengeRes = await apiFetch('/api/auth/solana-nonce', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ walletAddress: cleanWallet, domain }),
@@ -185,7 +186,7 @@ class PlayerAuthService {
       this.notify();
 
       // 2. Submit signature to server for verification and profile synchronization
-      const verifyRes = await fetch('/api/auth/solana-verify', {
+      const verifyRes = await apiFetch('/api/auth/solana-verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -225,7 +226,7 @@ class PlayerAuthService {
   public async refreshProfile(): Promise<PlayerProfile | null> {
     if (!this.currentProfile) return null;
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/player/profile?walletAddress=${encodeURIComponent(this.currentProfile.walletAddress)}`
       );
       if (res.ok) {
@@ -282,7 +283,7 @@ class PlayerAuthService {
     }
 
     const headers = await this.buildAuthHeaders();
-    const res = await fetch('/api/player/update-username', {
+    const res = await apiFetch('/api/player/update-username', {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -327,7 +328,7 @@ class PlayerAuthService {
       const walletAddress = this.currentProfile?.walletAddress || undefined;
       if (!walletAddress && !userId) return;
 
-      const res = await fetch('/api/player/record-coins', {
+      const res = await apiFetch('/api/player/record-coins', {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -371,7 +372,7 @@ class PlayerAuthService {
     if (w) params.set('walletAddress', w);
     if (u) params.set('userId', u);
 
-    const res = await fetch(`/api/player/coin-totals?${params.toString()}`, {
+    const res = await apiFetch(`/api/player/coin-totals?${params.toString()}`, {
       method: 'GET',
       headers,
     });
@@ -402,7 +403,7 @@ class PlayerAuthService {
   }> {
     try {
       const headers = await this.buildAuthHeaders();
-      const res = await fetch('/api/player/withdraw', {
+      const res = await apiFetch('/api/player/withdraw', {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -454,7 +455,7 @@ class PlayerAuthService {
     if (w) params.set('walletAddress', w);
     if (u) params.set('userId', u);
 
-    const res = await fetch(`/api/player/withdrawals?${params.toString()}`, {
+    const res = await apiFetch(`/api/player/withdrawals?${params.toString()}`, {
       method: 'GET',
       headers,
     });

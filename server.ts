@@ -28,6 +28,48 @@ dotenv.config();
 process.env.DISABLE_HMR = 'true';
 
 const app = express();
+
+// Explicit CORS configuration for Cloudflare production frontend and local development origins
+const ALLOWED_ORIGINS = new Set<string>([
+  'https://pinnrunner.thomassean538.workers.dev',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:4173',
+]);
+
+if (process.env.CORS_ALLOWED_ORIGINS) {
+  for (const rawOrigin of process.env.CORS_ALLOWED_ORIGINS.split(',')) {
+    const clean = rawOrigin.trim().replace(/\/+$/, '');
+    if (clean) {
+      ALLOWED_ORIGINS.add(clean);
+    }
+  }
+}
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin ? req.headers.origin.trim().replace(/\/+$/, '') : '';
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Content-Type, Authorization, x-player-session-token, x-admin-role, Accept'
+    );
+    res.setHeader('Access-Control-Max-Age', '86400');
+  }
+
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+
+  next();
+});
+
 app.use(express.json());
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;

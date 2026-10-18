@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient, User, Session } from '@supabase/supabase-js';
+import { checkBackendHealth } from './apiClient';
 
 // Configuration provided for PINN Arcade
 const DEFAULT_SUPABASE_URL = 'https://qkckwsxhejnktuccbeaw.supabase.co';
@@ -44,21 +45,26 @@ export const isSupabaseConfigured = (): boolean => {
 };
 
 /**
- * Checks connectivity to the Supabase instance and checks if scores table is ready.
+ * Checks connectivity to the Supabase instance, backend API (/api/health), and checks if scores table is ready.
  */
 export async function testSupabaseConnection(): Promise<{
   connected: boolean;
   tableReady: boolean;
   scoresTableReady: boolean;
   edgeFunctionReady: boolean;
+  backendHealthy?: boolean;
   message: string;
 }> {
+  const backendRes = await checkBackendHealth();
+  const backendHealthy = backendRes.ok;
+
   if (!isSupabaseConfigured()) {
     return {
       connected: false,
       tableReady: false,
       scoresTableReady: false,
       edgeFunctionReady: false,
+      backendHealthy,
       message: 'Supabase URL or Anon key is not set.',
     };
   }
@@ -90,6 +96,7 @@ export async function testSupabaseConnection(): Promise<{
       tableReady,
       scoresTableReady,
       edgeFunctionReady,
+      backendHealthy,
       message: scoresTableReady
         ? 'Connected successfully to Supabase scores database!'
         : 'Connected to Supabase. Table public.scores is pending creation.',
@@ -101,6 +108,7 @@ export async function testSupabaseConnection(): Promise<{
       tableReady: false,
       scoresTableReady: false,
       edgeFunctionReady: false,
+      backendHealthy,
       message: `Failed to connect to Supabase: ${msg}`,
     };
   }

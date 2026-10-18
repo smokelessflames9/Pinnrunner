@@ -15,6 +15,7 @@ import {
 import { tournamentService } from './tournamentService';
 import { solanaVerificationService } from './solanaVerificationService';
 import { PINN_CONFIG } from '../config/pinnConfig';
+import { apiFetch } from './apiClient';
 
 // Known admin emails or UID allowlist fallback for initial deployment bootstrap
 const ADMIN_EMAIL_ALLOWLIST = new Set([
@@ -1077,7 +1078,7 @@ class AdminService {
             error: 'AUTHENTICATION REQUIRED: Active Supabase administrator session required to record payments.',
           };
         }
-        const res = await fetch('/api/payments/verify-and-record', {
+        const res = await apiFetch('/api/payments/verify-and-record', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1352,7 +1353,7 @@ class AdminService {
   async getAdminPlayerBalances(searchQuery: string = ''): Promise<AdminPlayerBalanceRow[]> {
     const headers = await this.buildAdminAuthHeaders();
     const qParam = searchQuery.trim() ? `?q=${encodeURIComponent(searchQuery.trim())}` : '';
-    const res = await fetch(`/api/admin/player-balances${qParam}`, {
+    const res = await apiFetch(`/api/admin/player-balances${qParam}`, {
       method: 'GET',
       headers,
     });
@@ -1375,7 +1376,7 @@ class AdminService {
       statusFilter && statusFilter !== 'all'
         ? `?status=${encodeURIComponent(statusFilter)}`
         : '';
-    const res = await fetch(`/api/admin/withdrawals${qParam}`, {
+    const res = await apiFetch(`/api/admin/withdrawals${qParam}`, {
       method: 'GET',
       headers,
     });
@@ -1399,7 +1400,7 @@ class AdminService {
   ): Promise<{ success: boolean; message?: string; error?: string }> {
     try {
       const headers = await this.buildAdminAuthHeaders();
-      const res = await fetch('/api/admin/withdrawals/status', {
+      const res = await apiFetch('/api/admin/withdrawals/status', {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -1446,7 +1447,7 @@ class AdminService {
   }> {
     try {
       const headers = await this.buildAdminAuthHeaders();
-      const res = await fetch('/api/admin/withdrawals/settle', {
+      const res = await apiFetch('/api/admin/withdrawals/settle', {
         method: 'POST',
         headers,
         body: JSON.stringify({
