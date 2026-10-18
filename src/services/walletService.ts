@@ -41,8 +41,7 @@ class WalletService {
             // Background re-authentication if not already authenticated
             setTimeout(() => {
               if (this.state.address) {
-                const isDemo = this.state.walletName?.toLowerCase().includes('demo') || false;
-                playerAuthService.authenticateWallet(this.state.address, this.getProvider(), isDemo).catch((e) => {
+                playerAuthService.authenticateWallet(this.state.address, this.getProvider()).catch((e) => {
                   console.warn('Initial session restore auth note:', e?.message || e);
                 });
               }
@@ -87,7 +86,7 @@ class WalletService {
             this.notify();
 
             // Automatically re-authenticate new account and isolate data
-            playerAuthService.authenticateWallet(newAddress, provider, false).catch((err) => {
+            playerAuthService.authenticateWallet(newAddress, provider).catch((err) => {
               console.warn('Auto-authentication on account change note:', err);
             });
           }

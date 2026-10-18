@@ -9,10 +9,11 @@ import {
   RewardStatus,
   GameId,
   Tournament,
+  AdminPlayerBalanceRow,
+  WithdrawalRequest,
 } from '../types';
 import { tournamentService } from './tournamentService';
 import { solanaVerificationService } from './solanaVerificationService';
-import { walletService } from './walletService';
 import { PINN_CONFIG } from '../config/pinnConfig';
 
 // Known admin emails or UID allowlist fallback for initial deployment bootstrap
@@ -281,24 +282,6 @@ class AdminService {
    * Ordinary players cannot elevate themselves or access admin privileges.
    */
   async checkAdminStatus(): Promise<AdminCheckResult> {
-    // 0. Check if connected wallet address is an authorized admin wallet
-    const connectedWallet = walletService.getState().address;
-    if (connectedWallet) {
-      const cleanW = connectedWallet.trim().toLowerCase();
-      const isAdminWallet =
-        cleanW === '7xkxtg2cw87d97txjsdpbd5jbkhetqa83tzrujosgasu' ||
-        cleanW === '3j98t1wpez73cnmqviecrnyiwrnqrhwnlynzkkqv4f2e' ||
-        cleanW === '8mkbtqn2b1x9vfz4p6ww89y5c1jl2mpnx3vq4r7dj8st' ||
-        cleanW.startsWith('demo:');
-      if (isAdminWallet) {
-        return {
-          isAdmin: true,
-          role: 'superadmin',
-          userId: connectedWallet,
-        };
-      }
-    }
-
     const user = await getCurrentUser();
     if (!user) {
       return { isAdmin: false, reason: 'No authenticated user session.' };
@@ -1346,6 +1329,153 @@ class AdminService {
     }
 
     return Array.from(playerMap.values());
+  }
+
+  /**
+   * Helper: Build server-verified Admin Authorization headers with Supabase JWT
+   */
+  private async buildAdminAuthHeaders(): Promise<Record<string, string>> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    const session = await getCurrentSession();
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
+    return headers;
+  }
+
+  /**
+   * FEATURE 3: Admin Searchable Player Balances
+   * Queries authoritative server endpoint /api/admin/player-balances protected by server-side RBAC.
+   */
+  async getAdminPlayerBalances(searchQuery: string = ''): Promise<AdminPlayerBalanceRow[]> {
+    const headers = await this.buildAdminAuthHeaders();
+    const qParam = searchQuery.trim() ? `?q=${encodeURIComponent(searchQuery.trim())}` : '';
+    const res = await fetch(`/api/admin/player-balances${qParam}`, {
+      method: 'GET',
+      headers,
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success || !Array.isArray(data.players)) {
+      throw new Error(data.error || 'Failed to load authoritative player balances.');
+    }
+
+    return data.players as AdminPlayerBalanceRow[];
+  }
+
+  /**
+   * FEATURE 5: Admin View All Withdrawal Requests
+   * Queries /api/admin/withdrawals protected by server-side RBAC.
+   */
+  async getAdminWithdrawals(statusFilter: string = 'all'): Promise<WithdrawalRequest[]> {
+    const headers = await this.buildAdminAuthHeaders();
+    const qParam =
+      statusFilter && statusFilter !== 'all'
+        ? `?status=${encodeURIComponent(statusFilter)}`
+        : '';
+    const res = await fetch(`/api/admin/withdrawals${qParam}`, {
+      method: 'GET',
+      headers,
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success || !Array.isArray(data.withdrawals)) {
+      throw new Error(data.error || 'Failed to load withdrawal requests.');
+    }
+
+    return data.withdrawals as WithdrawalRequest[];
+  }
+
+  /**
+   * FEATURE 5: Admin Update Withdrawal Status (Approve, Mark Processing, or Reject & Release Reservation)
+   */
+  async updateWithdrawalStatus(
+    requestId: string,
+    status: 'approved' | 'processing' | 'rejected' | 'cancelled',
+    adminNotes?: string,
+    rejectionReason?: string
+  ): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const headers = await this.buildAdminAuthHeaders();
+      const res = await fetch('/api/admin/withdrawals/status', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          requestId,
+          status,
+          adminNotes,
+          rejectionReason,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        return {
+          success: false,
+          error: data.error || `Failed to update withdrawal status to ${status}.`,
+        };
+      }
+
+      return {
+        success: true,
+        message: data.message || `Withdrawal status updated to ${status}.`,
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        success: false,
+        error: msg || 'Network error while updating withdrawal status.',
+      };
+    }
+  }
+
+  /**
+   * FEATURE 5: Admin Settle Withdrawal & Mark Paid (Independent Solana On-Chain Verification)
+   */
+  async settleWithdrawalPayout(params: {
+    requestId: string;
+    txSignature: string;
+    note?: string;
+  }): Promise<{
+    success: boolean;
+    message?: string;
+    error?: string;
+    txSignature?: string;
+  }> {
+    try {
+      const headers = await this.buildAdminAuthHeaders();
+      const res = await fetch('/api/admin/withdrawals/settle', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          requestId: params.requestId,
+          txSignature: params.txSignature,
+          note: params.note,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        return {
+          success: false,
+          error: data.error || 'Solana on-chain payout verification failed.',
+        };
+      }
+
+      return {
+        success: true,
+        message: data.message,
+        txSignature: data.txSignature,
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        success: false,
+        error: msg || 'Network error while verifying withdrawal payout.',
+      };
+    }
   }
 }
 

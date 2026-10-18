@@ -117,6 +117,7 @@ export const PinnSpeedTap: React.FC<PinnSpeedTapProps> = ({
           ? Math.max(5000, Math.min(35000, Date.now() - matchStartTime.current))
           : 30000;
       const { pb, isNewPb } = leaderboardService.recordGameBest('speed-tap', score, {
+        coins: hits,
         sessionId: matchSessionId.current,
         durationMs: elapsedMs,
         telemetry: {
@@ -136,7 +137,7 @@ export const PinnSpeedTap: React.FC<PinnSpeedTapProps> = ({
         });
       }
     }
-  }, [timeLeft, gameState, score, misses, trapsHit]);
+  }, [timeLeft, gameState, score, hits, misses, trapsHit]);
 
   // Spawn Targets with dynamic difficulty escalation
   useEffect(() => {

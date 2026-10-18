@@ -10,9 +10,15 @@
  * 6. Account switching & disconnect isolation
  */
 
-import { PlayerProfile, WalletAuthChallenge, WalletAuthResult } from '../types';
+import {
+  PlayerProfile,
+  WalletAuthChallenge,
+  WalletAuthResult,
+  PlayerCoinSummary,
+  WithdrawalRequest,
+} from '../types';
 import bs58 from 'bs58';
-import { generateThemedUsername } from './usernameGenerator';
+import { supabase, isSupabaseConfigured } from './supabaseClient';
 
 function safeBs58Encode(data: Uint8Array): string {
   const encoder = typeof bs58.encode === 'function' ? bs58.encode : (bs58 as any).default?.encode;
@@ -237,6 +243,32 @@ class PlayerAuthService {
   }
 
   /**
+   * Builds authentication headers including wallet session token and Supabase JWT
+   */
+  public async buildAuthHeaders(): Promise<Record<string, string>> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (this.sessionToken) {
+      headers['x-player-session-token'] = this.sessionToken;
+    }
+
+    if (isSupabaseConfigured()) {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data?.session?.access_token) {
+          headers['Authorization'] = `Bearer ${data.session.access_token}`;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    return headers;
+  }
+
+  /**
    * Updates the player's display name
    */
   public async updateDisplayName(newName: string): Promise<PlayerProfile> {
@@ -249,9 +281,10 @@ class PlayerAuthService {
       throw new Error('Username must be at least 3 characters.');
     }
 
+    const headers = await this.buildAuthHeaders();
     const res = await fetch('/api/player/update-username', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         walletAddress: this.currentProfile.walletAddress,
         displayName: clean,
@@ -269,19 +302,41 @@ class PlayerAuthService {
   }
 
   /**
-   * Authoritatively records game coins won into player account and ledger
+   * Authoritatively records game coins won into player account and ledger with session deduplication
    */
-  public async recordGameCoins(coins: number, durationMs: number = 0, gameId: string = 'coin-rush'): Promise<void> {
-    if (!this.currentProfile || coins <= 0) return;
+  public async recordGameCoins(
+    coins: number,
+    durationMs: number = 0,
+    gameId: string = 'coin-rush',
+    sessionId?: string
+  ): Promise<void> {
+    if (coins <= 0 && durationMs <= 0) return;
+
     try {
+      const headers = await this.buildAuthHeaders();
+      let userId: string | undefined = this.currentProfile?.authUserId || undefined;
+      if (!userId && isSupabaseConfigured()) {
+        try {
+          const { data } = await supabase.auth.getUser();
+          if (data?.user?.id) userId = data.user.id;
+        } catch {
+          // ignore
+        }
+      }
+
+      const walletAddress = this.currentProfile?.walletAddress || undefined;
+      if (!walletAddress && !userId) return;
+
       const res = await fetch('/api/player/record-coins', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
-          walletAddress: this.currentProfile.walletAddress,
+          walletAddress,
+          userId,
           coinsEarned: coins,
           durationMs,
           gameId,
+          sessionId,
         }),
       });
       if (res.ok) {
@@ -294,6 +349,122 @@ class PlayerAuthService {
     } catch {
       // ignore
     }
+  }
+
+  /**
+   * Fetches the authenticated player's authoritative coin totals across all 4 games
+   * plus eligible earnings, paid total, reserved amount, and available balance.
+   */
+  public async getCoinSummary(
+    walletAddress?: string | null,
+    userId?: string | null
+  ): Promise<PlayerCoinSummary> {
+    const headers = await this.buildAuthHeaders();
+    const w = (walletAddress || this.currentProfile?.walletAddress || '').trim();
+    const u = (userId || this.currentProfile?.authUserId || this.currentProfile?.id || '').trim();
+
+    if (!w && !u) {
+      throw new Error('Authentication required to load player coin totals.');
+    }
+
+    const params = new URLSearchParams();
+    if (w) params.set('walletAddress', w);
+    if (u) params.set('userId', u);
+
+    const res = await fetch(`/api/player/coin-totals?${params.toString()}`, {
+      method: 'GET',
+      headers,
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success || !data.summary) {
+      throw new Error(data.error || 'Failed to load authoritative coin totals.');
+    }
+
+    return data.summary as PlayerCoinSummary;
+  }
+
+  /**
+   * Submits an atomic, concurrency-safe PINN withdrawal request (minimum 10,000 eligible available coins)
+   */
+  public async submitWithdrawal(params: {
+    amountCoins: number;
+    destinationWallet: string;
+    walletAddress?: string | null;
+    userId?: string | null;
+    playerName?: string;
+  }): Promise<{
+    success: boolean;
+    message?: string;
+    error?: string;
+    request?: WithdrawalRequest;
+    newAvailableBalance?: number;
+  }> {
+    try {
+      const headers = await this.buildAuthHeaders();
+      const res = await fetch('/api/player/withdraw', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          amountCoins: params.amountCoins,
+          destinationWallet: params.destinationWallet,
+          walletAddress: params.walletAddress || this.currentProfile?.walletAddress || undefined,
+          userId: params.userId || this.currentProfile?.authUserId || this.currentProfile?.id || undefined,
+          playerName: params.playerName || this.currentProfile?.displayName || 'Player',
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        return {
+          success: false,
+          error: data.error || 'Withdrawal request failed.',
+        };
+      }
+
+      return {
+        success: true,
+        message: data.message,
+        request: data.request,
+        newAvailableBalance: data.newAvailableBalance,
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        success: false,
+        error: msg || 'Network error while submitting withdrawal request.',
+      };
+    }
+  }
+
+  /**
+   * Fetches the authenticated player's own withdrawal requests
+   */
+  public async getWithdrawals(
+    walletAddress?: string | null,
+    userId?: string | null
+  ): Promise<WithdrawalRequest[]> {
+    const headers = await this.buildAuthHeaders();
+    const w = (walletAddress || this.currentProfile?.walletAddress || '').trim();
+    const u = (userId || this.currentProfile?.authUserId || this.currentProfile?.id || '').trim();
+
+    if (!w && !u) return [];
+
+    const params = new URLSearchParams();
+    if (w) params.set('walletAddress', w);
+    if (u) params.set('userId', u);
+
+    const res = await fetch(`/api/player/withdrawals?${params.toString()}`, {
+      method: 'GET',
+      headers,
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success || !Array.isArray(data.withdrawals)) {
+      throw new Error(data.error || 'Failed to load withdrawal history.');
+    }
+
+    return data.withdrawals as WithdrawalRequest[];
   }
 
   /**

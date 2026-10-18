@@ -275,8 +275,11 @@ export interface WithdrawalRequest {
   playerId?: string | null;
   playerName: string;
   walletAddress: string; // Destination Solana address
+  destinationWallet?: string;
   amountCoins: number;
   amountRaw: string | number;
+  amountRawUnits?: string | number;
+  decimals?: number;
   tokenMint: string;
   status: WithdrawalStatus;
   adminNotes?: string;
@@ -299,8 +302,12 @@ export interface AdminPlayerBalanceItem {
   totalCoinsCollected: number;
   eligibleEarnings: number;
   paidTotal: number;
+  paidWithdrawnTotal?: number;
   reservedAmount: number;
   availableBalance: number;
   lastActive?: string;
+  lastUpdated?: string;
 }
+
+export type AdminPlayerBalanceRow = AdminPlayerBalanceItem;
 

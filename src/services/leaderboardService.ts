@@ -282,14 +282,14 @@ class LeaderboardService {
       // ignore
     }
 
-    // Authoritatively synchronize coins into player account ledger
-    if (coins > 0 || durationMs > 0) {
-      playerAuthService.recordGameCoins(coins, durationMs, 'coin-rush');
-    }
-
     // Submit securely to Supabase Edge Function with anti-cheat telemetry
     const walletAddress = walletService.getState().address;
     const sessionId = extraTelemetry?.sessionId || `cr_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+    // Authoritatively synchronize coins into player account ledger with session deduplication
+    if (coins > 0 || durationMs > 0) {
+      playerAuthService.recordGameCoins(coins, durationMs, 'coin-rush', sessionId);
+    }
 
     // Ingest into admin moderation queue
     const liveScoreRecord: ScoreRecord = {
@@ -500,9 +500,9 @@ class LeaderboardService {
           // ignore
         }
 
-        // Authoritatively synchronize coins into player account ledger
+        // Authoritatively synchronize coins into player account ledger with session deduplication
         if ((options?.coins && options.coins > 0) || durationMs > 0) {
-          playerAuthService.recordGameCoins(options?.coins || 0, durationMs, gameId);
+          playerAuthService.recordGameCoins(options?.coins || 0, durationMs, gameId, sessionId);
         }
 
         // Ingest into admin moderation queue

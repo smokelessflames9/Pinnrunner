@@ -511,6 +511,7 @@ export const PinnTreasureHunt: React.FC<PinnTreasureHuntProps> = ({
         soundService.playGameOver();
         const durationMs = Math.max(4000, Date.now() - sim.current.startTime);
         leaderboardService.recordGameBest('treasure-hunt', sim.current.score, {
+          coins: sim.current.coinsFound,
           sessionId: sim.current.sessionId,
           durationMs,
           telemetry: {
@@ -562,6 +563,7 @@ export const PinnTreasureHunt: React.FC<PinnTreasureHuntProps> = ({
         // Update PB
         const durationMs = Math.max(4000, Date.now() - sim.current.startTime);
         const { pb } = leaderboardService.recordGameBest('treasure-hunt', sim.current.score, {
+          coins: sim.current.coinsFound,
           sessionId: sim.current.sessionId,
           durationMs,
           telemetry: {
@@ -669,6 +671,7 @@ export const PinnTreasureHunt: React.FC<PinnTreasureHuntProps> = ({
               soundService.playGameOver();
               const durationMs = Math.max(4000, Date.now() - sim.current.startTime);
               leaderboardService.recordGameBest('treasure-hunt', sim.current.score, {
+                coins: sim.current.coinsFound,
                 sessionId: sim.current.sessionId,
                 durationMs,
                 telemetry: {

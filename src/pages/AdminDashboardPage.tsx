@@ -43,6 +43,9 @@ import {
   AdminOverviewStats,
   AdminCheckResult,
   GameId,
+  AdminPlayerBalanceRow,
+  WithdrawalRequest,
+  WithdrawalStatus,
 } from '../types';
 import { adminService } from '../services/adminService';
 import { tournamentService } from '../services/tournamentService';
@@ -61,6 +64,8 @@ type AdminTab =
   | 'scores'
   | 'suspicious'
   | 'players'
+  | 'balances'
+  | 'withdrawals'
   | 'rewards'
   | 'payments'
   | 'system';
@@ -93,8 +98,32 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   const [scoreFilter, setScoreFilter] = useState<'all' | 'pending' | 'verified' | 'rejected'>('all');
   const [suspiciousScores, setSuspiciousScores] = useState<ScoreRecord[]>([]);
 
-  // Players
+  // Players & Authoritative Balances (Feature 3)
   const [players, setPlayers] = useState<any[]>([]);
+  const [playerBalances, setPlayerBalances] = useState<AdminPlayerBalanceRow[]>([]);
+  const [balanceSearchQuery, setBalanceSearchQuery] = useState('');
+  const [loadingBalances, setLoadingBalances] = useState(false);
+
+  // Player Withdrawal Requests & Manual Settlement (Feature 5)
+  const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>([]);
+  const [withdrawalFilter, setWithdrawalFilter] = useState<
+    'all' | 'pending' | 'approved' | 'processing' | 'paid' | 'rejected'
+  >('all');
+  const [updatingWithdrawalId, setUpdatingWithdrawalId] = useState<string | null>(null);
+  const [withdrawalTabError, setWithdrawalTabError] = useState<string | null>(null);
+  const [withdrawalTabSuccess, setWithdrawalTabSuccess] = useState<string | null>(null);
+
+  // Reject Withdrawal Modal State
+  const [rejectingWithdrawal, setRejectingWithdrawal] = useState<WithdrawalRequest | null>(null);
+  const [rejectionReasonInput, setRejectionReasonInput] = useState('');
+
+  // Settle Withdrawal Payout Modal State (On-Chain Solana Verification)
+  const [settlingWithdrawal, setSettlingWithdrawal] = useState<WithdrawalRequest | null>(null);
+  const [withdrawalTxSigInput, setWithdrawalTxSigInput] = useState('');
+  const [withdrawalAdminNoteInput, setWithdrawalAdminNoteInput] = useState('');
+  const [isSettlingWithdrawal, setIsSettlingWithdrawal] = useState(false);
+  const [withdrawalSettleError, setWithdrawalSettleError] = useState<string | null>(null);
+  const [withdrawalSettleSuccess, setWithdrawalSettleSuccess] = useState<string | null>(null);
 
   // Rewards & Payments
   const [rewardRequests, setRewardRequests] = useState<RewardRequest[]>([]);
@@ -185,6 +214,8 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         allScores,
         suspicious,
         playerAccounts,
+        balancesList,
+        withdrawalsList,
         rewards,
         paymentList,
         health,
@@ -194,6 +225,8 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         adminService.getAllScores(scoreFilter),
         adminService.getSuspiciousScores(),
         adminService.getPlayerAccounts(),
+        adminService.getAdminPlayerBalances(balanceSearchQuery),
+        adminService.getAdminWithdrawals('all'),
         adminService.getRewardRequests(),
         adminService.getPaymentHistory(),
         testSupabaseConnection(),
@@ -204,11 +237,116 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
       setScores(allScores);
       setSuspiciousScores(suspicious);
       setPlayers(playerAccounts);
+      setPlayerBalances(balancesList);
+      setWithdrawals(withdrawalsList);
       setRewardRequests(rewards);
       setPayments(paymentList);
       setSystemHealth(health);
     } catch (err) {
       console.error('Error refreshing admin dashboard data:', err);
+    }
+  };
+
+  const handleSearchPlayerBalances = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setLoadingBalances(true);
+    try {
+      const rows = await adminService.getAdminPlayerBalances(balanceSearchQuery);
+      setPlayerBalances(rows);
+    } catch (err) {
+      console.error('Failed to search player balances:', err);
+    } finally {
+      setLoadingBalances(false);
+    }
+  };
+
+  const handleUpdateWithdrawalStatus = async (
+    requestId: string,
+    status: 'approved' | 'rejected' | 'processing',
+    options?: { adminNotes?: string; rejectionReason?: string }
+  ) => {
+    if (updatingWithdrawalId) return;
+    setUpdatingWithdrawalId(requestId);
+    setWithdrawalTabError(null);
+    setWithdrawalTabSuccess(null);
+
+    try {
+      const res = await adminService.updateWithdrawalStatus(
+        requestId,
+        status,
+        options?.adminNotes,
+        options?.rejectionReason
+      );
+      if (res.success) {
+        const msg =
+          status === 'rejected'
+            ? `Withdrawal #${requestId.slice(0, 8)} rejected and reserved funds released back to available balance.`
+            : `Withdrawal #${requestId.slice(0, 8)} status updated to ${status.toUpperCase()}.`;
+        setWithdrawalTabSuccess(msg);
+        setActionSuccess(msg);
+        setRejectingWithdrawal(null);
+        setRejectionReasonInput('');
+        await refreshAllData();
+        setTimeout(() => {
+          setWithdrawalTabSuccess(null);
+          setActionSuccess(null);
+        }, 5000);
+      } else {
+        setWithdrawalTabError(res.error || `Failed to update withdrawal status to ${status}.`);
+      }
+    } catch (err: any) {
+      setWithdrawalTabError(err?.message || 'Error updating withdrawal status.');
+    } finally {
+      setUpdatingWithdrawalId(null);
+    }
+  };
+
+  const handleOpenWithdrawalSettlementModal = (req: WithdrawalRequest) => {
+    setSettlingWithdrawal(req);
+    setWithdrawalTxSigInput(req.txSignature || '');
+    setWithdrawalAdminNoteInput(req.adminNotes || `Manual $PINN payout for withdrawal #${req.id.slice(0, 8)}`);
+    setWithdrawalSettleError(null);
+    setWithdrawalSettleSuccess(null);
+  };
+
+  const handleExecuteWithdrawalSettlement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!settlingWithdrawal) return;
+    const cleanSig = withdrawalTxSigInput.trim();
+    if (!cleanSig) {
+      setWithdrawalSettleError('Please enter a valid Solana mainnet transaction signature.');
+      return;
+    }
+
+    setIsSettlingWithdrawal(true);
+    setWithdrawalSettleError(null);
+    setWithdrawalSettleSuccess(null);
+
+    try {
+      const res = await adminService.settleWithdrawalPayout({
+        requestId: settlingWithdrawal.id,
+        txSignature: cleanSig,
+        note: withdrawalAdminNoteInput.trim(),
+      });
+      if (res.success) {
+        const msg = `On-chain verification passed! Withdrawal #${settlingWithdrawal.id.slice(0, 8)} settled as PAID (${settlingWithdrawal.amountCoins.toLocaleString()} $PINN).`;
+        setWithdrawalSettleSuccess(msg);
+        setWithdrawalTabSuccess(msg);
+        setActionSuccess(msg);
+        await refreshAllData();
+        setTimeout(() => {
+          setSettlingWithdrawal(null);
+          setWithdrawalSettleSuccess(null);
+        }, 2200);
+      } else {
+        setWithdrawalSettleError(
+          res.error || 'On-chain Solana transaction verification failed. Request was NOT marked Paid.'
+        );
+      }
+    } catch (err: any) {
+      setWithdrawalSettleError(err?.message || 'Unexpected error verifying Solana payout.');
+    } finally {
+      setIsSettlingWithdrawal(false);
     }
   };
 
@@ -631,6 +769,8 @@ $$;`;
       <div className="flex flex-wrap items-center gap-2 mb-8 border-b border-zinc-800 pb-4">
         {[
           { id: 'overview', label: 'Overview & Stats', icon: Activity },
+          { id: 'balances', label: 'Player Balances', icon: Coins, count: playerBalances.length },
+          { id: 'withdrawals', label: 'Withdrawal Requests', icon: Send, count: withdrawals.length },
           { id: 'tournaments', label: 'Tournaments', icon: Trophy, count: tournaments.length },
           { id: 'scores', label: 'Score Moderation', icon: ShieldCheck, count: scores.length },
           { id: 'suspicious', label: 'Suspicious Telemetry', icon: AlertTriangle, count: suspiciousScores.length },
@@ -1521,6 +1661,440 @@ $$;`;
         </div>
       )}
 
+      {/* =========================================================================
+          FEATURE 3: ADMIN PLAYER BALANCES (SEARCHABLE LEDGER)
+      ========================================================================= */}
+      {activeTab === 'balances' && (
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-white uppercase font-serif tracking-tight flex items-center gap-2">
+                <Coins className="w-5 h-5 text-amber-400" />
+                <span>PLAYER COIN BALANCES & ELIGIBILITY LEDGER</span>
+              </h2>
+              <p className="text-xs text-zinc-400">
+                Authoritative server-verified collectible coins across all 4 games, eligible earnings, completed payouts, active reservations, and available balances.
+              </p>
+            </div>
+
+            <form onSubmit={handleSearchPlayerBalances} className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="relative flex-1 sm:w-80">
+                <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={balanceSearchQuery}
+                  onChange={(e) => setBalanceSearchQuery(e.target.value)}
+                  placeholder="Search by player name, User ID, or wallet..."
+                  className="w-full pl-9 pr-4 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-white text-xs focus:outline-none focus:border-amber-400"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loadingBalances}
+                className="px-4 py-2 rounded-xl bg-gold-gradient text-black font-bold text-xs uppercase tracking-wider cursor-pointer flex items-center gap-1.5"
+              >
+                {loadingBalances ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                <span>Search</span>
+              </button>
+            </form>
+          </div>
+
+          {/* Formula Reference Banner */}
+          <div className="p-4 rounded-2xl bg-zinc-950 border border-gold-subtle/30 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="text-zinc-400">
+              <strong className="text-amber-300 uppercase">Source of Truth Formula:</strong>{' '}
+              Available Balance = Eligible Earnings − Paid/Withdrawn Total − Reserved (Pending/Approved/Processing)
+            </div>
+            <div className="text-[11px] font-mono text-zinc-500">
+              Showing {
+                playerBalances.filter((b) => {
+                  const q = balanceSearchQuery.trim().toLowerCase();
+                  if (!q) return true;
+                  return (
+                    b.playerName.toLowerCase().includes(q) ||
+                    b.userId.toLowerCase().includes(q) ||
+                    (b.walletAddress || '').toLowerCase().includes(q)
+                  );
+                }).length
+              } player record(s)
+            </div>
+          </div>
+
+          <div className="p-6 rounded-3xl bg-zinc-950 border border-gold-subtle/40 shadow-xl overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-zinc-800 text-zinc-400 uppercase text-[10px] tracking-wider">
+                  <th className="py-3 px-2.5">Player / User ID</th>
+                  <th className="py-3 px-2.5">Linked Wallet</th>
+                  <th className="py-3 px-2.5 text-right">Coin Rush</th>
+                  <th className="py-3 px-2.5 text-right">Treasure Hunt</th>
+                  <th className="py-3 px-2.5 text-right">Puzzle Master</th>
+                  <th className="py-3 px-2.5 text-right">Speed Tap</th>
+                  <th className="py-3 px-2.5 text-right">Total Collected</th>
+                  <th className="py-3 px-2.5 text-right">Eligible</th>
+                  <th className="py-3 px-2.5 text-right">Paid / Withdrawn</th>
+                  <th className="py-3 px-2.5 text-right">Reserved</th>
+                  <th className="py-3 px-2.5 text-right">Available Balance</th>
+                  <th className="py-3 px-2.5 text-right">Last Updated</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-900">
+                {(() => {
+                  const filtered = playerBalances.filter((b) => {
+                    const q = balanceSearchQuery.trim().toLowerCase();
+                    if (!q) return true;
+                    return (
+                      b.playerName.toLowerCase().includes(q) ||
+                      b.userId.toLowerCase().includes(q) ||
+                      (b.walletAddress || '').toLowerCase().includes(q)
+                    );
+                  });
+
+                  if (filtered.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={12} className="py-12 text-center text-zinc-500">
+                          No player coin balance records match your query.
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return filtered.map((b) => (
+                    <tr key={`${b.userId}-${b.walletAddress || 'nowallet'}`} className="hover:bg-zinc-900/40">
+                      <td className="py-3 px-2.5">
+                        <div className="font-bold text-white">{b.playerName}</div>
+                        <div className="text-[10px] font-mono text-zinc-500">{b.userId}</div>
+                      </td>
+                      <td className="py-3 px-2.5 font-mono text-[11px] text-zinc-400">
+                        {b.walletAddress ? (
+                          <span className="text-amber-200/90">
+                            {b.walletAddress.slice(0, 6)}...{b.walletAddress.slice(-4)}
+                          </span>
+                        ) : (
+                          <span className="text-zinc-600">Unlinked</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-2.5 text-right font-mono-arcade text-zinc-300">
+                        {b.coinRushCoins.toLocaleString()}
+                      </td>
+                      <td className="py-3 px-2.5 text-right font-mono-arcade text-zinc-300">
+                        {b.treasureHuntCoins.toLocaleString()}
+                      </td>
+                      <td className="py-3 px-2.5 text-right font-mono-arcade text-zinc-300">
+                        {b.puzzleMasterCoins.toLocaleString()}
+                      </td>
+                      <td className="py-3 px-2.5 text-right font-mono-arcade text-zinc-300">
+                        {b.speedTapCoins.toLocaleString()}
+                      </td>
+                      <td className="py-3 px-2.5 text-right font-mono-arcade font-bold text-white">
+                        {b.totalCoinsCollected.toLocaleString()}
+                      </td>
+                      <td className="py-3 px-2.5 text-right font-mono-arcade font-bold text-emerald-400">
+                        {b.eligibleEarnings.toLocaleString()}
+                      </td>
+                      <td className="py-3 px-2.5 text-right font-mono-arcade font-bold text-blue-400">
+                        {(b.paidWithdrawnTotal ?? b.paidTotal ?? 0).toLocaleString()}
+                      </td>
+                      <td className="py-3 px-2.5 text-right font-mono-arcade font-bold text-amber-400">
+                        {b.reservedAmount.toLocaleString()}
+                      </td>
+                      <td className="py-3 px-2.5 text-right font-mono-arcade font-black text-gold-gradient text-sm">
+                        {b.availableBalance.toLocaleString()}
+                      </td>
+                      <td className="py-3 px-2.5 text-right text-[11px] text-zinc-500">
+                        {b.lastUpdated || b.lastActive
+                          ? new Date((b.lastUpdated || b.lastActive) as string).toLocaleString()
+                          : 'N/A'}
+                      </td>
+                    </tr>
+                  ));
+                })()}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          FEATURE 5: ADMIN WITHDRAWAL MANAGEMENT & MANUAL PAYOUT VERIFICATION
+      ========================================================================= */}
+      {activeTab === 'withdrawals' && (
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-white uppercase font-serif tracking-tight flex items-center gap-2">
+                <Send className="w-5 h-5 text-amber-400" />
+                <span>PLAYER WITHDRAWAL REQUESTS & MANUAL PAYOUT VERIFICATION</span>
+              </h2>
+              <p className="text-xs text-zinc-400">
+                Review player withdrawal requests (min 10,000 $PINN), manage reservation lifecycle, and verify manual Solana mainnet payouts.
+              </p>
+            </div>
+            <div className="px-4 py-2 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-300 text-xs font-bold font-mono">
+              Mint: {PINN_CONFIG.TOKEN_MINT_ADDRESS}
+            </div>
+          </div>
+
+          {withdrawalTabSuccess && (
+            <div className="p-3.5 rounded-2xl bg-emerald-950/60 border border-emerald-500/60 text-emerald-300 text-xs font-bold flex items-center justify-between shadow-lg">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{withdrawalTabSuccess}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setWithdrawalTabSuccess(null)}
+                className="cursor-pointer text-emerald-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {withdrawalTabError && (
+            <div className="p-3.5 rounded-2xl bg-red-950/60 border border-red-500/60 text-red-300 text-xs font-bold flex items-center justify-between shadow-lg">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                <span>{withdrawalTabError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setWithdrawalTabError(null)}
+                className="cursor-pointer text-red-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* Status Filter Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl bg-zinc-950 border border-gold-subtle/30 shadow-lg">
+            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+              Filter by Lifecycle Status:
+            </span>
+            <div className="flex flex-wrap items-center gap-1.5 p-1 bg-black/60 border border-zinc-800 rounded-xl">
+              {[
+                { id: 'all', label: 'All', count: withdrawals.length },
+                {
+                  id: 'pending',
+                  label: 'Pending',
+                  count: withdrawals.filter((w) => w.status === 'pending').length,
+                },
+                {
+                  id: 'approved',
+                  label: 'Approved',
+                  count: withdrawals.filter((w) => w.status === 'approved').length,
+                },
+                {
+                  id: 'processing',
+                  label: 'Processing',
+                  count: withdrawals.filter((w) => w.status === 'processing').length,
+                },
+                {
+                  id: 'paid',
+                  label: 'Paid (Settled)',
+                  count: withdrawals.filter((w) => w.status === 'paid').length,
+                },
+                {
+                  id: 'rejected',
+                  label: 'Rejected',
+                  count: withdrawals.filter((w) => w.status === 'rejected').length,
+                },
+              ].map((f) => {
+                const isActive = withdrawalFilter === f.id;
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setWithdrawalFilter(f.id as any)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-gold-gradient text-black shadow-md'
+                        : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+                    }`}
+                  >
+                    <span>{f.label}</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                        isActive ? 'bg-black text-amber-300' : 'bg-zinc-900 text-zinc-400'
+                      }`}
+                    >
+                      {f.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="p-6 rounded-3xl bg-zinc-950 border border-gold-subtle/40 shadow-xl overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-zinc-800 text-zinc-400 uppercase text-[10px] tracking-wider">
+                  <th className="py-3 px-2.5">Request ID / Date</th>
+                  <th className="py-3 px-2.5">Player / User ID</th>
+                  <th className="py-3 px-2.5">Amount ($PINN / Raw Units)</th>
+                  <th className="py-3 px-2.5">Destination Wallet</th>
+                  <th className="py-3 px-2.5">Status</th>
+                  <th className="py-3 px-2.5">Admin Notes / Rejection Reason</th>
+                  <th className="py-3 px-2.5">Tx Signature</th>
+                  <th className="py-3 px-2.5 text-right">Manual Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-900">
+                {(() => {
+                  const filtered = withdrawals.filter((w) =>
+                    withdrawalFilter === 'all' ? true : w.status === withdrawalFilter
+                  );
+
+                  if (filtered.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={8} className="py-12 text-center text-zinc-500">
+                          No withdrawal requests found in this status filter.
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return filtered.map((w) => (
+                    <tr key={w.id} className="hover:bg-zinc-900/40">
+                      <td className="py-3 px-2.5">
+                        <div className="font-mono font-bold text-amber-300">#{w.id.slice(0, 10)}</div>
+                        <div className="text-[10px] text-zinc-500">
+                          {new Date(w.createdAt).toLocaleString()}
+                        </div>
+                      </td>
+                      <td className="py-3 px-2.5">
+                        <div className="font-bold text-white">{w.playerName}</div>
+                        <div className="text-[10px] font-mono text-zinc-500">{w.userId}</div>
+                      </td>
+                      <td className="py-3 px-2.5">
+                        <div className="font-mono-arcade font-bold text-amber-300 text-sm">
+                          {w.amountCoins.toLocaleString()} $PINN
+                        </div>
+                        <div className="text-[10px] font-mono text-zinc-500">
+                          Raw ({w.decimals ?? 6} dec): {w.amountRawUnits ?? w.amountRaw}
+                        </div>
+                      </td>
+                      <td className="py-3 px-2.5 font-mono text-[11px] text-zinc-300 break-all max-w-[180px]">
+                        {w.destinationWallet || w.walletAddress}
+                      </td>
+                      <td className="py-3 px-2.5">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
+                            w.status === 'paid'
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                              : w.status === 'rejected'
+                              ? 'bg-red-500/20 text-red-300 border-red-500/40'
+                              : w.status === 'processing'
+                              ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                              : w.status === 'approved'
+                              ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                              : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                          }`}
+                        >
+                          {w.status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2.5 max-w-[200px] text-zinc-400">
+                        {w.rejectionReason ? (
+                          <span className="text-red-300 font-medium">Reason: {w.rejectionReason}</span>
+                        ) : (
+                          <span>{w.adminNotes || '—'}</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-2.5">
+                        {w.txSignature ? (
+                          <a
+                            href={`${PINN_CONFIG.SOLSCAN_TX_BASE_URL}${w.txSignature}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-gold-subtle/30 text-emerald-400 font-mono text-[10px]"
+                          >
+                            <span>{w.txSignature.slice(0, 8)}...</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        ) : (
+                          <span className="text-zinc-600 text-[11px]">Unsettled</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-2.5 text-right">
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                          {w.status === 'pending' && (
+                            <button
+                              type="button"
+                              disabled={Boolean(updatingWithdrawalId)}
+                              onClick={() =>
+                                handleUpdateWithdrawalStatus(w.id, 'approved', {
+                                  adminNotes: 'Approved by admin for manual $PINN payout.',
+                                })
+                              }
+                              className="px-2.5 py-1.5 rounded-lg bg-blue-950/70 hover:bg-blue-900 border border-blue-500/50 text-blue-200 font-bold text-[10px] uppercase tracking-wider cursor-pointer"
+                            >
+                              Approve
+                            </button>
+                          )}
+
+                          {(w.status === 'pending' || w.status === 'approved') && (
+                            <button
+                              type="button"
+                              disabled={Boolean(updatingWithdrawalId)}
+                              onClick={() =>
+                                handleUpdateWithdrawalStatus(w.id, 'processing', {
+                                  adminNotes: 'Marked processing — manual Solana transfer in progress.',
+                                })
+                              }
+                              className="px-2.5 py-1.5 rounded-lg bg-purple-950/70 hover:bg-purple-900 border border-purple-500/50 text-purple-200 font-bold text-[10px] uppercase tracking-wider cursor-pointer"
+                            >
+                              Mark Processing
+                            </button>
+                          )}
+
+                          {(w.status === 'approved' || w.status === 'processing') && (
+                            <button
+                              type="button"
+                              disabled={Boolean(updatingWithdrawalId)}
+                              onClick={() => handleOpenWithdrawalSettlementModal(w)}
+                              className="px-3 py-1.5 rounded-lg bg-gold-gradient text-black font-extrabold text-[10px] uppercase tracking-wider cursor-pointer shadow"
+                            >
+                              Record Signature & Verify Paid
+                            </button>
+                          )}
+
+                          {(w.status === 'pending' ||
+                            w.status === 'approved' ||
+                            w.status === 'processing') && (
+                            <button
+                              type="button"
+                              disabled={Boolean(updatingWithdrawalId)}
+                              onClick={() => {
+                                setRejectingWithdrawal(w);
+                                setRejectionReasonInput('');
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-red-950/70 hover:bg-red-900 border border-red-500/50 text-red-200 font-bold text-[10px] uppercase tracking-wider cursor-pointer"
+                            >
+                              Reject
+                            </button>
+                          )}
+
+                          {w.status === 'paid' && (
+                            <span className="text-[10px] text-emerald-400 font-bold uppercase flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Verified Paid
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ));
+                })()}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* TAB 6: REWARD REQUESTS & MANAGEMENT */}
       {activeTab === 'rewards' && (
         <div className="flex flex-col gap-6">
@@ -2203,6 +2777,216 @@ $$;`;
                   className="px-5 py-2 rounded-xl bg-gold-gradient text-black text-xs font-extrabold uppercase tracking-wider cursor-pointer shadow-md"
                 >
                   Save Prize Allocation
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL: REJECT WITHDRAWAL REQUEST (RELEASES RESERVED BALANCE)
+      ========================================================================= */}
+      {rejectingWithdrawal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-3xl bg-zinc-950 border border-red-500/50 p-6 sm:p-8 shadow-2xl">
+            <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
+              <h3 className="text-base font-bold text-white uppercase font-serif flex items-center gap-2">
+                <XCircle className="w-5 h-5 text-red-400" />
+                <span>Reject Withdrawal Request</span>
+              </h3>
+              <button
+                onClick={() => setRejectingWithdrawal(null)}
+                className="text-zinc-400 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 p-3 rounded-xl bg-zinc-900 border border-zinc-800 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Player:</span>
+                <span className="text-white font-bold">{rejectingWithdrawal.playerName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Reserved Amount:</span>
+                <span className="text-amber-300 font-bold font-mono-arcade">
+                  {rejectingWithdrawal.amountCoins.toLocaleString()} $PINN
+                </span>
+              </div>
+              <div className="text-[11px] text-emerald-400 pt-1">
+                Rejecting this request will immediately release {rejectingWithdrawal.amountCoins.toLocaleString()} $PINN back to the player's available balance.
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className="block text-xs text-zinc-400 uppercase font-semibold mb-1">
+                Rejection Reason (Optional)
+              </label>
+              <textarea
+                rows={3}
+                value={rejectionReasonInput}
+                onChange={(e) => setRejectionReasonInput(e.target.value)}
+                placeholder="Explain why this withdrawal request was rejected..."
+                className="w-full px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white text-xs focus:outline-none focus:border-red-400"
+              />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4">
+              <button
+                type="button"
+                onClick={() => setRejectingWithdrawal(null)}
+                className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-400 text-xs font-bold uppercase cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={Boolean(updatingWithdrawalId)}
+                onClick={() =>
+                  handleUpdateWithdrawalStatus(rejectingWithdrawal.id, 'rejected', {
+                    rejectionReason:
+                      rejectionReasonInput.trim() || 'Rejected by administrator; reserved coins released.',
+                  })
+                }
+                className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-extrabold uppercase tracking-wider cursor-pointer"
+              >
+                Confirm Rejection & Release Reserve
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL: SETTLE WITHDRAWAL PAYOUT (ON-CHAIN SOLANA MAINNET VERIFICATION)
+      ========================================================================= */}
+      {settlingWithdrawal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg rounded-3xl bg-zinc-950 border border-gold-glow p-6 sm:p-8 shadow-2xl">
+            <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-gold-gradient text-black flex items-center justify-center font-bold">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white uppercase font-serif">
+                    Verify & Settle Manual $PINN Withdrawal
+                  </h3>
+                  <p className="text-[11px] text-zinc-400">
+                    Backend verifies Solana mainnet confirmation, official mint, destination owner, and exact raw units.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSettlingWithdrawal(null)}
+                className="text-zinc-400 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 p-3.5 rounded-xl bg-zinc-900 border border-zinc-800 space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Request ID:</span>
+                <span className="text-white font-mono">#{settlingWithdrawal.id}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Player:</span>
+                <span className="text-white font-bold">{settlingWithdrawal.playerName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Destination Wallet:</span>
+                <span className="text-amber-300 font-mono text-[11px] break-all">
+                  {settlingWithdrawal.destinationWallet || settlingWithdrawal.walletAddress}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Withdrawal Amount:</span>
+                <span className="text-gold-gradient font-bold font-mono-arcade text-sm">
+                  {settlingWithdrawal.amountCoins.toLocaleString()} $PINN
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Exact Integer Base Units ({settlingWithdrawal.decimals ?? 6} dec):</span>
+                <span className="text-emerald-300 font-mono text-[11px]">
+                  {settlingWithdrawal.amountRawUnits ?? settlingWithdrawal.amountRaw}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Official Token Mint:</span>
+                <span className="text-zinc-400 font-mono text-[10px]">
+                  {PINN_CONFIG.TOKEN_MINT_ADDRESS}
+                </span>
+              </div>
+            </div>
+
+            <form onSubmit={handleExecuteWithdrawalSettlement} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs text-zinc-400 uppercase font-semibold mb-1">
+                  Solana Mainnet Transaction Signature *
+                </label>
+                <input
+                  type="text"
+                  value={withdrawalTxSigInput}
+                  onChange={(e) => setWithdrawalTxSigInput(e.target.value)}
+                  placeholder="Paste base58 Solana transaction signature after sending tokens..."
+                  className="w-full px-4 py-2.5 rounded-xl bg-black border border-zinc-800 text-amber-300 text-xs font-mono focus:outline-none focus:border-amber-400"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-zinc-400 uppercase font-semibold mb-1">
+                  Admin Settlement Note
+                </label>
+                <input
+                  type="text"
+                  value={withdrawalAdminNoteInput}
+                  onChange={(e) => setWithdrawalAdminNoteInput(e.target.value)}
+                  placeholder="Optional audit note"
+                  className="w-full px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white text-xs focus:outline-none focus:border-amber-400"
+                />
+              </div>
+
+              {withdrawalSettleError && (
+                <div className="p-3 rounded-xl bg-red-950/50 border border-red-500/50 text-red-300 text-xs font-bold flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{withdrawalSettleError}</span>
+                </div>
+              )}
+
+              {withdrawalSettleSuccess && (
+                <div className="p-3 rounded-xl bg-emerald-950/50 border border-emerald-500/50 text-emerald-300 text-xs font-bold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>{withdrawalSettleSuccess}</span>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSettlingWithdrawal(null)}
+                  className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-400 text-xs font-bold uppercase cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSettlingWithdrawal}
+                  className="px-5 py-2 rounded-xl bg-gold-gradient text-black text-xs font-extrabold uppercase tracking-wider shadow-lg hover:scale-105 transition-all cursor-pointer flex items-center gap-2"
+                >
+                  {isSettlingWithdrawal ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Verifying On-Chain...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>Verify On-Chain & Mark Paid</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
