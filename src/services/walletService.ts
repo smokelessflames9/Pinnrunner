@@ -16,6 +16,7 @@ declare global {
     phantom?: {
       solana?: Window['solana'];
     };
+    solflare?: Window['solana'];
   }
 }
 
@@ -38,12 +39,10 @@ class WalletService {
           const parsed = JSON.parse(saved);
           if (parsed.address) {
             this.state = parsed;
-            // Background re-authentication if not already authenticated
+            // If already authenticated in localStorage for this wallet, refresh profile quietly in background
             setTimeout(() => {
-              if (this.state.address) {
-                playerAuthService.authenticateWallet(this.state.address, this.getProvider()).catch((e) => {
-                  console.warn('Initial session restore auth note:', e?.message || e);
-                });
+              if (this.state.address && playerAuthService.isAuthenticated()) {
+                playerAuthService.refreshProfile().catch(() => {});
               }
             }, 100);
           }
@@ -58,9 +57,15 @@ class WalletService {
     }
   }
 
-  private getProvider() {
+  public getProvider(walletType?: 'phantom' | 'solflare') {
     if (typeof window === 'undefined') return undefined;
-    return window.solana || window.phantom?.solana;
+    if (walletType === 'solflare' && window.solflare) {
+      return window.solflare;
+    }
+    if (walletType === 'phantom' && window.phantom?.solana) {
+      return window.phantom.solana;
+    }
+    return window.phantom?.solana || window.solflare || window.solana;
   }
 
   private setupWalletEventListeners() {
@@ -132,17 +137,24 @@ class WalletService {
   }
 
   public async connect(walletType: 'phantom' | 'solflare' = 'phantom'): Promise<WalletState> {
-    const solanaProvider = this.getProvider();
+    const solanaProvider = this.getProvider(walletType);
     this.setupWalletEventListeners();
 
     if (solanaProvider) {
       try {
         const res = await solanaProvider.connect();
-        const pubKey = res.publicKey.toString();
+        const pubKey = res?.publicKey?.toString() || solanaProvider.publicKey?.toString() || '';
+        if (!pubKey) {
+          throw new Error('Wallet connected but did not return a public key.');
+        }
         this.state = {
           isConnected: true,
           address: pubKey,
-          walletName: solanaProvider.isPhantom ? 'Phantom' : 'Solana Wallet',
+          walletName: solanaProvider.isPhantom
+            ? 'Phantom'
+            : solanaProvider.isSolflare || walletType === 'solflare'
+            ? 'Solflare'
+            : 'Solana Wallet',
         };
         this.notify();
 

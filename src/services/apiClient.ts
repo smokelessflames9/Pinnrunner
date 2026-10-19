@@ -34,10 +34,55 @@ export function buildApiUrl(path: string): string {
 
 /**
  * Wrapper around fetch() that automatically targets the configured Render backend
- * for relative `/api/*` paths while preserving method, headers, body, and response parsing.
+ * for relative `/api/*` paths while falling back to same-origin `/api/*` if the
+ * external backend is unreachable or blocked by CORS.
  */
-export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(buildApiUrl(path), init);
+export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const cleanPath = path.trim();
+  if (/^https?:\/\//i.test(cleanPath)) {
+    return fetch(cleanPath, init);
+  }
+
+  const normalizedPath = cleanPath.startsWith('/') ? cleanPath : `/${cleanPath}`;
+  const remoteUrl = `${API_BASE_URL}${normalizedPath}`;
+
+  // If running on a full-stack host (localhost or Cloud Run), try same-origin first
+  const isSameOriginHost =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1' ||
+      window.location.hostname.endsWith('.run.app'));
+
+  if (isSameOriginHost) {
+    try {
+      const localRes = await fetch(normalizedPath, init);
+      const contentType = localRes.headers.get('content-type') || '';
+      if (localRes.ok || contentType.includes('application/json')) {
+        return localRes;
+      }
+    } catch {
+      // Fallback to remoteUrl
+    }
+  }
+
+  try {
+    return await fetch(remoteUrl, init);
+  } catch (remoteErr) {
+    // If remote backend failed (e.g. iOS Safari "Load failed" due to CORS or sleeping Render instance),
+    // try same-origin /api/* in case a proxy or full-stack server is mounted on the current domain.
+    if (!isSameOriginHost && typeof window !== 'undefined') {
+      try {
+        const fallbackRes = await fetch(normalizedPath, init);
+        const contentType = fallbackRes.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          return fallbackRes;
+        }
+      } catch {
+        // Ignore fallback error and rethrow original
+      }
+    }
+    throw remoteErr;
+  }
 }
 
 /**
@@ -70,3 +115,4 @@ export async function checkBackendHealth(): Promise<{
     return { ok: false, error: msg };
   }
 }
+

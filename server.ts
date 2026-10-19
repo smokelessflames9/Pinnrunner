@@ -31,6 +31,8 @@ const app = express();
 
 // Explicit CORS configuration for Cloudflare production frontend and local development origins
 const ALLOWED_ORIGINS = new Set<string>([
+  'https://pinnarcade.fun',
+  'https://www.pinnarcade.fun',
   'https://pinnrunner.thomassean538.workers.dev',
   'http://localhost:3000',
   'http://127.0.0.1:3000',
@@ -49,9 +51,27 @@ if (process.env.CORS_ALLOWED_ORIGINS) {
   }
 }
 
+function isAllowedCorsOrigin(origin: string): boolean {
+  if (!origin) return false;
+  if (ALLOWED_ORIGINS.has(origin)) return true;
+  try {
+    const url = new URL(origin);
+    const host = url.hostname.toLowerCase();
+    return (
+      host === 'pinnarcade.fun' ||
+      host.endsWith('.pinnarcade.fun') ||
+      host.endsWith('.workers.dev') ||
+      host.endsWith('.pages.dev') ||
+      host.endsWith('.run.app')
+    );
+  } catch {
+    return false;
+  }
+}
+
 app.use((req, res, next) => {
   const origin = req.headers.origin ? req.headers.origin.trim().replace(/\/+$/, '') : '';
-  if (origin && ALLOWED_ORIGINS.has(origin)) {
+  if (origin && isAllowedCorsOrigin(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Credentials', 'true');

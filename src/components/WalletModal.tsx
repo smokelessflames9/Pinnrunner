@@ -69,7 +69,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({
     if (!walletState.address) return;
     setErrorMsg(null);
     try {
-      await playerAuthService.authenticateWallet(walletState.address);
+      await playerAuthService.authenticateWallet(walletState.address, walletService.getProvider());
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setErrorMsg(msg);
