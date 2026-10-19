@@ -64,6 +64,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { label: 'Tournaments', page: 'tournaments' },
     { label: 'Leaderboard', page: 'leaderboard' },
     { label: 'Rewards', page: 'rewards' },
+    { label: 'Roadmap', page: 'roadmap' },
     { label: 'Game Rules', page: 'game-rules' },
     { label: '$PINN Token', page: 'token' },
   ];
@@ -108,7 +109,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </button>
 
         {/* DESKTOP NAVIGATION LINKS */}
-        <nav className="hidden lg:flex items-center gap-8 text-sm font-medium">
+        <nav className="hidden lg:flex items-center gap-4 xl:gap-6 text-sm font-medium whitespace-nowrap">
           {navItems.map((item) => {
               const isActive = item.matches ? item.matches.includes(currentPage) : currentPage === item.page;
             return (

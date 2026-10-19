@@ -76,3 +76,92 @@
   -webkit-user-select: none;
   user-select: none;
 }
+
+/* Scoped styles for the integrated $PINN Club Roadmap HTML page */
+.pinn-roadmap-page {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  background: #0d1117;
+  color: white;
+  width: 100%;
+  flex: 1;
+  line-height: normal;
+}
+
+.pinn-roadmap-page h1,
+.pinn-roadmap-page h2,
+.pinn-roadmap-page h3 {
+  font-family: Arial, sans-serif;
+}
+
+.pinn-roadmap-page header {
+  background: #161b22;
+  padding: 24px 20px;
+  text-align: center;
+}
+
+.pinn-roadmap-page header h1 {
+  color: #4CAF50;
+  font-size: 2em;
+  font-weight: bold;
+  margin: 0.67em 0;
+}
+
+.pinn-roadmap-page section {
+  padding: 20px;
+  max-width: 900px;
+  margin: auto;
+  box-sizing: border-box;
+}
+
+.pinn-roadmap-page h2 {
+  color: #4CAF50;
+  border-bottom: 2px solid #4CAF50;
+  padding-bottom: 5px;
+  font-size: 1.5em;
+  font-weight: bold;
+  margin: 0.83em 0;
+}
+
+.pinn-roadmap-page h3 {
+  color: #9be564;
+  font-size: 1.17em;
+  font-weight: bold;
+  margin: 1em 0;
+}
+
+.pinn-roadmap-page p {
+  margin: 1em 0;
+}
+
+.pinn-roadmap-page ul {
+  line-height: 1.7;
+  list-style-type: disc;
+  margin: 1em 0;
+  padding-left: 40px;
+}
+
+.pinn-roadmap-page .btn {
+  background: #4CAF50;
+  color: white;
+  padding: 10px 20px;
+  text-decoration: none;
+  border-radius: 5px;
+  display: inline-block;
+  margin: 5px;
+  font-weight: 600;
+}
+
+.pinn-roadmap-page footer {
+  background: #161b22;
+  text-align: center;
+  padding: 15px;
+  margin-top: 20px;
+}
+
+.pinn-roadmap-page .ca {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-family: monospace;
+}
+

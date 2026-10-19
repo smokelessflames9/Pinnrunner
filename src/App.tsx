@@ -18,14 +18,37 @@ import { AboutPage } from './pages/AboutPage';
 import { TermsPage } from './pages/TermsPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { GameRulesPage } from './pages/GameRulesPage';
+import { RoadmapPage } from './pages/RoadmapPage';
 import { PageNav, WalletState } from './types';
 import { walletService } from './services/walletService';
 import { soundService } from './services/soundService';
+
+const PAGE_TO_PATH: Record<PageNav, string> = {
+  home: '/',
+  games: '/games',
+  play: '/play',
+  'play-treasure': '/play-treasure',
+  'play-puzzle': '/play-puzzle',
+  'play-speedtap': '/play-speedtap',
+  tournaments: '/tournaments',
+  admin: '/admin',
+  token: '/token',
+  leaderboard: '/leaderboard',
+  rewards: '/rewards',
+  about: '/about',
+  terms: '/terms',
+  privacy: '/privacy',
+  'game-rules': '/game-rules',
+  roadmap: '/roadmap',
+};
 
 function getInitialPageFromUrl(): PageNav {
   if (typeof window === 'undefined') return 'home';
   const path = window.location.pathname.toLowerCase().replace(/\/+$/, '');
   const hash = window.location.hash.toLowerCase().replace(/^#\/?/, '');
+  if (path === '/roadmap' || hash === 'roadmap') {
+    return 'roadmap';
+  }
   if (
     path === '/rules' ||
     path === '/game-rules' ||
@@ -34,6 +57,12 @@ function getInitialPageFromUrl(): PageNav {
     hash === 'game-rules'
   ) {
     return 'game-rules';
+  }
+  const matchedEntry = (Object.entries(PAGE_TO_PATH) as [PageNav, string][]).find(
+    ([, routePath]) => routePath !== '/' && (path === routePath || hash === routePath.slice(1))
+  );
+  if (matchedEntry) {
+    return matchedEntry[0];
   }
   return 'home';
 }
@@ -48,6 +77,11 @@ export default function App() {
     const unsubscribe = walletService.subscribe((state) => {
       setWalletState(state);
     });
+
+    const handlePopState = () => {
+      setCurrentPage(getInitialPageFromUrl());
+    };
+    window.addEventListener('popstate', handlePopState);
 
     const unlock = () => {
       soundService.unlockAudio();
@@ -66,6 +100,7 @@ export default function App() {
 
     return () => {
       unsubscribe();
+      window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('click', unlock);
       window.removeEventListener('pointerdown', unlock);
       window.removeEventListener('touchstart', unlock);
@@ -75,6 +110,14 @@ export default function App() {
 
   const handleNavigate = (page: PageNav) => {
     setCurrentPage(page);
+    try {
+      const targetPath = PAGE_TO_PATH[page] || '/';
+      if (window.location.pathname !== targetPath) {
+        window.history.pushState({ page }, '', targetPath);
+      }
+    } catch {
+      // Ignore history pushState restrictions in sandboxed environments
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -110,6 +153,7 @@ export default function App() {
         {currentPage === 'terms' && <TermsPage onNavigate={handleNavigate} />}
         {currentPage === 'privacy' && <PrivacyPage onNavigate={handleNavigate} />}
         {currentPage === 'game-rules' && <GameRulesPage onNavigate={handleNavigate} />}
+        {currentPage === 'roadmap' && <RoadmapPage />}
       </main>
 
       {/* Footer */}
