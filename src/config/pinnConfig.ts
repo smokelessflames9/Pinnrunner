@@ -4,6 +4,22 @@
  * All settings are accessible and can be modified without rewriting the application.
  */
 
+export interface TokenHubPlatformConfig {
+  id: 'coinbuzzer' | 'coinboom' | 'dexscreener' | 'fomo';
+  platformName: string;
+  heading: string;
+  description: string;
+  buttonLabel: string;
+  url: string;
+  isPrimaryPromotion?: boolean;
+  badge?: string;
+  eventName:
+    | 'pinn_coinbuzzer_clicked'
+    | 'pinn_coinboom_clicked'
+    | 'pinn_dexscreener_clicked'
+    | 'pinn_fomo_clicked';
+}
+
 export const PINN_CONFIG = {
   // Official Project Identity
   PROJECT_NAME: "PINN Arcade",
@@ -11,12 +27,69 @@ export const PINN_CONFIG = {
   TOKEN_SYMBOL: "PINN",
   BLOCKCHAIN: "Solana",
   TOKEN_MINT_ADDRESS: "6n2dDvako6nWp2zeKabf2UFxBta8xjvcqgFfZwsNpump",
-  OFFICIAL_TELEGRAM_URL: "https://t.me/+B1Wz7pu8zJdlOGYx",
+  OFFICIAL_TELEGRAM_URL: "https://t.me/pinnsol",
+  OFFICIAL_TELEGRAM_INVITE_URL: "https://t.me/+B1Wz7pu8zJdlOGYx",
   TAGLINE: "PLAY. COMPETE. EARN PINN.",
 
-  // External Block Explorer URLs
+  // External Block Explorer & Market Platform URLs
   SOLSCAN_TOKEN_URL: "https://solscan.io/token/6n2dDvako6nWp2zeKabf2UFxBta8xjvcqgFfZwsNpump",
   SOLSCAN_TX_BASE_URL: "https://solscan.io/tx/",
+  COINBUZZER_URL: "https://coinbuzzer.me/coin/1060",
+  COINBOOM_URL: "https://coinboom.net/solana/6n2dDvako6nWp2zeKabf2UFxBta8xjvcqgFfZwsNpump",
+  DEXSCREENER_URL: "https://dexscreener.com/solana/6n2dDvako6nWp2zeKabf2UFxBta8xjvcqgFfZwsNpump",
+  FOMO_URL: "https://fomo.family/coin?address=6n2dDvako6nWp2zeKabf2UFxBta8xjvcqgFfZwsNpump&chainId=1399811149&r=sluggg9&source=share_link&t=1792539364",
+
+  // Centralized $PINN Token Hub Platform Cards
+  TOKEN_HUB_PLATFORMS: [
+    {
+      id: "coinbuzzer",
+      platformName: "CoinBuzzer",
+      heading: "VOTE FOR $PINN",
+      description:
+        "Visit the official $PINN listing on CoinBuzzer and support the project through the platform's available community voting features.",
+      buttonLabel: "VIEW ON COINBUZZER",
+      url: "https://coinbuzzer.me/coin/1060",
+      isPrimaryPromotion: true,
+      badge: "COMMUNITY FEATURE",
+      eventName: "pinn_coinbuzzer_clicked",
+    },
+    {
+      id: "coinboom",
+      platformName: "CoinBoom",
+      heading: "DISCOVER $PINN",
+      description:
+        "Explore the $PINN token listing and access the project's available information on CoinBoom.",
+      buttonLabel: "VIEW ON COINBOOM",
+      url: "https://coinboom.net/solana/6n2dDvako6nWp2zeKabf2UFxBta8xjvcqgFfZwsNpump",
+      isPrimaryPromotion: false,
+      eventName: "pinn_coinboom_clicked",
+    },
+    {
+      id: "dexscreener",
+      platformName: "DexScreener",
+      heading: "TRACK THE MARKET",
+      description:
+        "View the $PINN market chart and review available trading activity, liquidity, and price information.",
+      buttonLabel: "VIEW LIVE CHART",
+      url: "https://dexscreener.com/solana/6n2dDvako6nWp2zeKabf2UFxBta8xjvcqgFfZwsNpump",
+      isPrimaryPromotion: false,
+      eventName: "pinn_dexscreener_clicked",
+    },
+    {
+      id: "fomo",
+      platformName: "FOMO",
+      heading: "EXPLORE $PINN ON FOMO",
+      description:
+        "Discover the $PINN tracking page and explore the information provided by FOMO.",
+      buttonLabel: "VIEW ON FOMO",
+      url: "https://fomo.family/coin?address=6n2dDvako6nWp2zeKabf2UFxBta8xjvcqgFfZwsNpump&chainId=1399811149&r=sluggg9&source=share_link&t=1792539364",
+      isPrimaryPromotion: false,
+      eventName: "pinn_fomo_clicked",
+    },
+  ] as readonly TokenHubPlatformConfig[],
+
+  TOKEN_RISK_DISCLOSURE:
+    "$PINN is a volatile crypto asset. Market information can change rapidly. Conduct independent research before making financial decisions. Nothing on this website guarantees returns.",
 
   // Active / Upcoming Competition Configuration
   // If no competition is active, set IS_ACTIVE to false
