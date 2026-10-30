@@ -15,7 +15,10 @@ export type PinnAnalyticsEventName =
   | 'pinn_dexscreener_clicked'
   | 'pinn_fomo_clicked'
   | 'pinn_telegram_clicked'
-  | 'pinn_contract_copied';
+  | 'pinn_contract_copied'
+  | 'pinn_swap_opened'
+  | 'pinn_swap_quote_requested'
+  | 'pinn_swap_submitted';
 
 export interface CampaignAttribution {
   utm_source?: string;

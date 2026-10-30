@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   ArrowDown,
   BarChart3,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { PageNav } from '../types';
 import { PINN_CONFIG } from '../config/pinnConfig';
@@ -16,6 +17,7 @@ import { trackPinnEvent } from '../services/analyticsService';
 
 interface TokenHubSectionProps {
   onNavigate: (page: PageNav) => void;
+  onOpenSwapModal?: () => void;
 }
 
 /**
@@ -55,7 +57,10 @@ async function copyTextWithFallback(text: string): Promise<boolean> {
   return false;
 }
 
-export const TokenHubSection: React.FC<TokenHubSectionProps> = ({ onNavigate }) => {
+export const TokenHubSection: React.FC<TokenHubSectionProps> = ({
+  onNavigate,
+  onOpenSwapModal,
+}) => {
   const [copiedContract, setCopiedContract] = useState(false);
   const hubSectionRef = useRef<HTMLDivElement | null>(null);
   const hasTrackedViewRef = useRef(false);
@@ -143,7 +148,18 @@ export const TokenHubSection: React.FC<TokenHubSectionProps> = ({ onNavigate }) 
             </p>
           </div>
 
-          <div className="shrink-0">
+          <div className="flex flex-col sm:flex-row items-center gap-3 shrink-0">
+            {onOpenSwapModal && (
+              <button
+                type="button"
+                onClick={onOpenSwapModal}
+                data-action="swap-pinn"
+                className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-gold-gradient text-black font-extrabold text-xs sm:text-sm uppercase tracking-wider hover:opacity-95 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 whitespace-nowrap"
+              >
+                <ArrowLeftRight className="w-4 h-4 shrink-0" />
+                <span>SWAP NOW</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={handleScrollToHubCards}
@@ -273,13 +289,25 @@ export const TokenHubSection: React.FC<TokenHubSectionProps> = ({ onNavigate }) 
 
           {/* Action Buttons */}
           <div className="flex flex-wrap items-center gap-3 pt-1">
+            {onOpenSwapModal && (
+              <button
+                type="button"
+                onClick={onOpenSwapModal}
+                data-action="swap-pinn"
+                className="px-5 py-2.5 rounded-xl bg-gold-gradient text-black font-extrabold text-xs uppercase tracking-wider hover:opacity-95 transition-all flex items-center gap-2 cursor-pointer shadow-md shadow-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 whitespace-nowrap"
+              >
+                <ArrowLeftRight className="w-4 h-4 shrink-0" />
+                <span>SWAP NOW</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleCopyContract}
-              className="px-5 py-2.5 rounded-xl bg-gold-gradient text-black font-extrabold text-xs uppercase tracking-wider hover:opacity-95 transition-all flex items-center gap-2 cursor-pointer shadow-md shadow-amber-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 whitespace-nowrap"
+              className="px-5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-amber-500/40 font-extrabold text-xs uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 whitespace-nowrap"
             >
               {copiedContract ? (
-                <Check className="w-4 h-4 text-black stroke-[3] shrink-0" />
+                <Check className="w-4 h-4 text-emerald-400 stroke-[3] shrink-0" />
               ) : (
                 <Copy className="w-4 h-4 shrink-0" />
               )}

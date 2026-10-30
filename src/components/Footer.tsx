@@ -165,15 +165,24 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
                   {PINN_CONFIG.TOKEN_MINT_ADDRESS}
                 </span>
               </div>
-              <a
-                href={PINN_CONFIG.SOLSCAN_TOKEN_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-amber-400 hover:text-amber-300 font-medium pt-1"
-              >
-                <span>View on Solscan</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  data-action="swap-pinn"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gold-gradient text-black font-extrabold text-[11px] uppercase tracking-wider hover:opacity-95 cursor-pointer"
+                >
+                  <span>SWAP NOW</span>
+                </button>
+                <a
+                  href={PINN_CONFIG.SOLSCAN_TOKEN_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs text-amber-400 hover:text-amber-300 font-medium"
+                >
+                  <span>View on Solscan</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
             </div>
           </div>
 

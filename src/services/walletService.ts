@@ -12,6 +12,11 @@ declare global {
       isConnected?: boolean;
       on?: (event: string, callback: (args: unknown) => void) => void;
       signMessage?: (message: Uint8Array, encoding?: string) => Promise<{ signature: Uint8Array }>;
+      signTransaction?: <T>(transaction: T) => Promise<T>;
+      signAndSendTransaction?: <T>(
+        transaction: T,
+        options?: { skipPreflight?: boolean; maxRetries?: number; preflightCommitment?: string }
+      ) => Promise<{ signature: string } | string>;
     };
     phantom?: {
       solana?: Window['solana'];
@@ -133,7 +138,7 @@ class WalletService {
   }
 
   public hasExtension(): boolean {
-    return typeof window !== 'undefined' && Boolean(window.solana || window.phantom?.solana);
+    return typeof window !== 'undefined' && Boolean(window.solana || window.phantom?.solana || window.solflare);
   }
 
   public async connect(walletType: 'phantom' | 'solflare' = 'phantom'): Promise<WalletState> {

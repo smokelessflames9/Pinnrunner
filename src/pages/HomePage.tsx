@@ -8,6 +8,7 @@ import {
   ArrowRight,
   Compass,
   ExternalLink,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { PageNav } from '../types';
 import { PINN_CONFIG } from '../config/pinnConfig';
@@ -16,9 +17,10 @@ import { trackPinnEvent } from '../services/analyticsService';
 
 interface HomePageProps {
   onNavigate: (page: PageNav) => void;
+  onOpenSwapModal?: () => void;
 }
 
-export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
+export const HomePage: React.FC<HomePageProps> = ({ onNavigate, onOpenSwapModal }) => {
   const handleHeroPlayNow = () => {
     trackPinnEvent('pinn_homepage_play_clicked', {
       section: 'hero_primary_cta',
@@ -75,7 +77,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           </p>
 
           {/* Primary & Secondary Hero Action Buttons */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 w-full max-w-xl mb-8">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 w-full max-w-2xl mb-8">
             {/* Primary CTA: PLAY NOW */}
             <button
               type="button"
@@ -85,6 +87,19 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
               <Play className="w-5 h-5 fill-current shrink-0" />
               <span>PLAY NOW</span>
             </button>
+
+            {/* SWAP NOW CTA */}
+            {onOpenSwapModal && (
+              <button
+                type="button"
+                onClick={onOpenSwapModal}
+                data-action="swap-pinn"
+                className="w-full sm:flex-1 px-7 py-4 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-400/60 hover:border-amber-300 font-extrabold text-sm sm:text-base uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 whitespace-nowrap"
+              >
+                <ArrowLeftRight className="w-5 h-5 text-amber-400 shrink-0" />
+                <span>SWAP NOW</span>
+              </button>
+            )}
 
             {/* Secondary CTA: EXPLORE $PINN */}
             <button
@@ -157,7 +172,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       </section>
 
       {/* 2. DEDICATED $PINN TOKEN HUB, ANNOUNCEMENT BANNER, COMMUNITY ACCESS & TRANSPARENCY PANEL */}
-      <TokenHubSection onNavigate={onNavigate} />
+      <TokenHubSection onNavigate={onNavigate} onOpenSwapModal={onOpenSwapModal} />
 
       {/* 3. FEATURED GAME SPOTLIGHT */}
       <section className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">

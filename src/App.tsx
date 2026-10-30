@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { WalletModal } from './components/WalletModal';
 import { AuthModal } from './components/AuthModal';
+import { JupiterSwapModal } from './components/JupiterSwapModal';
 import { HomePage } from './pages/HomePage';
 import { GamesPage } from './pages/GamesPage';
 import { GamePage } from './pages/GamePage';
@@ -22,6 +23,7 @@ import { RoadmapPage } from './pages/RoadmapPage';
 import { PageNav, WalletState } from './types';
 import { walletService } from './services/walletService';
 import { soundService } from './services/soundService';
+import { trackPinnEvent } from './services/analyticsService';
 
 const PAGE_TO_PATH: Record<PageNav, string> = {
   home: '/',
@@ -67,11 +69,27 @@ function getInitialPageFromUrl(): PageNav {
   return 'home';
 }
 
+function shouldOpenSwapFromUrl(): boolean {
+  if (typeof window === 'undefined') return false;
+  const path = window.location.pathname.toLowerCase().replace(/\/+$/, '');
+  const hash = window.location.hash.toLowerCase().replace(/^#\/?/, '');
+  const params = new URLSearchParams(window.location.search);
+  return path === '/swap' || hash === 'swap' || params.get('swap') === '1';
+}
+
 export default function App() {
   const [currentPage, setCurrentPage] = useState<PageNav>(getInitialPageFromUrl);
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isSwapModalOpen, setIsSwapModalOpen] = useState<boolean>(shouldOpenSwapFromUrl);
   const [walletState, setWalletState] = useState<WalletState>(walletService.getState());
+
+  const handleOpenSwapModal = useCallback(() => {
+    trackPinnEvent('pinn_swap_opened', {
+      section: currentPage,
+    });
+    setIsSwapModalOpen(true);
+  }, [currentPage]);
 
   useEffect(() => {
     const unsubscribe = walletService.subscribe((state) => {
@@ -80,8 +98,34 @@ export default function App() {
 
     const handlePopState = () => {
       setCurrentPage(getInitialPageFromUrl());
+      if (shouldOpenSwapFromUrl()) {
+        setIsSwapModalOpen(true);
+      }
     };
     window.addEventListener('popstate', handlePopState);
+
+    // Delegated listener so any button or link labeled "SWAP NOW" or with href="#swap" opens Jupiter Swap
+    const handleDelegatedSwapClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const actionable = target.closest('button, a') as HTMLElement | null;
+      if (!actionable) return;
+
+      const dataAction = actionable.getAttribute('data-action');
+      const href = actionable.getAttribute('href');
+      const label = (actionable.textContent || '').trim().toUpperCase();
+
+      if (
+        dataAction === 'swap-pinn' ||
+        href === '#swap' ||
+        href === '/swap' ||
+        label === 'SWAP NOW'
+      ) {
+        e.preventDefault();
+        setIsSwapModalOpen(true);
+      }
+    };
+    document.addEventListener('click', handleDelegatedSwapClick);
 
     const unlock = () => {
       soundService.unlockAudio();
@@ -101,6 +145,7 @@ export default function App() {
     return () => {
       unsubscribe();
       window.removeEventListener('popstate', handlePopState);
+      document.removeEventListener('click', handleDelegatedSwapClick);
       window.removeEventListener('click', unlock);
       window.removeEventListener('pointerdown', unlock);
       window.removeEventListener('touchstart', unlock);
@@ -130,11 +175,14 @@ export default function App() {
         walletState={walletState}
         onOpenWalletModal={() => setIsWalletModalOpen(true)}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        onOpenSwapModal={handleOpenSwapModal}
       />
 
       {/* Main Content Area */}
       <main className="flex-1 w-full flex flex-col">
-        {currentPage === 'home' && <HomePage onNavigate={handleNavigate} />}
+        {currentPage === 'home' && (
+          <HomePage onNavigate={handleNavigate} onOpenSwapModal={handleOpenSwapModal} />
+        )}
         {currentPage === 'games' && <GamesPage onNavigate={handleNavigate} />}
         {currentPage === 'play' && <GamePage onNavigate={handleNavigate} />}
         {currentPage === 'play-treasure' && <TreasureHuntPage onNavigate={handleNavigate} />}
@@ -146,7 +194,9 @@ export default function App() {
         {currentPage === 'admin' && (
           <AdminDashboardPage onNavigate={handleNavigate} onOpenAuthModal={() => setIsAuthModalOpen(true)} />
         )}
-        {currentPage === 'token' && <TokenPage onNavigate={handleNavigate} />}
+        {currentPage === 'token' && (
+          <TokenPage onNavigate={handleNavigate} onOpenSwapModal={handleOpenSwapModal} />
+        )}
         {currentPage === 'leaderboard' && <LeaderboardPage onNavigate={handleNavigate} />}
         {currentPage === 'rewards' && <RewardsPage onNavigate={handleNavigate} />}
         {currentPage === 'about' && <AboutPage onNavigate={handleNavigate} />}
@@ -158,6 +208,14 @@ export default function App() {
 
       {/* Footer */}
       <Footer onNavigate={handleNavigate} />
+
+      {/* Jupiter Swap Modal */}
+      <JupiterSwapModal
+        isOpen={isSwapModalOpen}
+        onClose={() => setIsSwapModalOpen(false)}
+        walletState={walletState}
+        onOpenWalletModal={() => setIsWalletModalOpen(true)}
+      />
 
       {/* Solana Wallet Modal */}
       <WalletModal

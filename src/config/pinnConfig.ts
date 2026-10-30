@@ -34,6 +34,8 @@ export const PINN_CONFIG = {
   // External Block Explorer & Market Platform URLs
   SOLSCAN_TOKEN_URL: "https://solscan.io/token/6n2dDvako6nWp2zeKabf2UFxBta8xjvcqgFfZwsNpump",
   SOLSCAN_TX_BASE_URL: "https://solscan.io/tx/",
+  JUPITER_SWAP_URL: "https://jup.ag/swap/SOL-6n2dDvako6nWp2zeKabf2UFxBta8xjvcqgFfZwsNpump",
+  PUMP_FUN_URL: "https://pump.fun/coin/6n2dDvako6nWp2zeKabf2UFxBta8xjvcqgFfZwsNpump",
   COINBUZZER_URL: "https://coinbuzzer.me/coin/1060",
   COINBOOM_URL: "https://coinboom.net/solana/6n2dDvako6nWp2zeKabf2UFxBta8xjvcqgFfZwsNpump",
   DEXSCREENER_URL: "https://dexscreener.com/solana/6n2dDvako6nWp2zeKabf2UFxBta8xjvcqgFfZwsNpump",

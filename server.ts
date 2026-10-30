@@ -2681,6 +2681,271 @@ app.post('/api/admin/withdrawals/settle', async (req, res) => {
   }
 });
 
+const JUPITER_QUOTE_ENDPOINTS = [
+  'https://lite-api.jup.ag/swap/v1/quote',
+  'https://api.jup.ag/swap/v1/quote',
+  'https://quote-api.jup.ag/v6/quote',
+];
+
+const JUPITER_SWAP_ENDPOINTS = [
+  'https://lite-api.jup.ag/swap/v1/swap',
+  'https://api.jup.ag/swap/v1/swap',
+  'https://quote-api.jup.ag/v6/swap',
+];
+
+/**
+ * GET /api/jupiter/quote
+ * Official Jupiter Swap API proxy for fetching live swap routes to $PINN.
+ * Enforces strict verification of the $PINN output mint address.
+ */
+app.get('/api/jupiter/quote', async (req, res) => {
+  try {
+    const inputMint = String(req.query.inputMint || 'So11111111111111111111111111111111111111112').trim();
+    const outputMint = String(req.query.outputMint || OFFICIAL_PINN_MINT).trim();
+    const amount = String(req.query.amount || '').trim();
+    const slippageBps = String(req.query.slippageBps || '100').trim();
+
+    if (outputMint !== OFFICIAL_PINN_MINT) {
+      return res.status(400).json({
+        error: `Invalid output token mint. Expected official $PINN mint (${OFFICIAL_PINN_MINT}).`,
+      });
+    }
+
+    if (!amount || !/^\d+$/.test(amount) || BigInt(amount) <= 0n) {
+      return res.status(400).json({
+        error: 'Invalid swap amount in base units.',
+      });
+    }
+
+    const queryParams = new URLSearchParams({
+      inputMint,
+      outputMint,
+      amount,
+      slippageBps,
+    });
+
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+    };
+    if (process.env.JUPITER_API_KEY) {
+      headers['x-api-key'] = process.env.JUPITER_API_KEY;
+    }
+
+    let lastStatus = 502;
+    let lastPayload: any = null;
+
+    for (const endpoint of JUPITER_QUOTE_ENDPOINTS) {
+      try {
+        const response = await fetch(`${endpoint}?${queryParams.toString()}`, {
+          method: 'GET',
+          headers,
+        });
+        const data = await response.json().catch(() => null);
+        lastStatus = response.status;
+        lastPayload = data;
+
+        if (response.ok && data && data.outAmount) {
+          return res.status(200).json(data);
+        }
+
+        // If Jupiter explicitly responds that no route / liquidity exists, return immediately
+        if (
+          data &&
+          (data.errorCode === 'COULD_NOT_FIND_ANY_ROUTE' ||
+            data.errorCode === 'TOKEN_NOT_TRADABLE' ||
+            String(data.error || '').toLowerCase().includes('route') ||
+            String(data.error || '').toLowerCase().includes('tradable') ||
+            String(data.message || '').toLowerCase().includes('route'))
+        ) {
+          return res.status(200).json({
+            noRouteAvailable: true,
+            errorCode: data.errorCode || 'NO_ROUTE_FOUND',
+            error:
+              data.error ||
+              data.message ||
+              'No active Jupiter liquidity route is currently available for this token pair.',
+          });
+        }
+      } catch (err: any) {
+        lastPayload = { error: err?.message || 'Jupiter quote fetch error' };
+      }
+    }
+
+    return res.status(lastStatus >= 400 && lastStatus < 600 ? lastStatus : 502).json(
+      lastPayload || {
+        error: 'Unable to reach Jupiter Quote API at this time.',
+      }
+    );
+  } catch (err: any) {
+    return res.status(500).json({
+      error: err?.message || 'Internal server error while requesting Jupiter quote.',
+    });
+  }
+});
+
+/**
+ * POST /api/jupiter/swap
+ * Official Jupiter Swap API proxy for building an unsigned VersionedTransaction.
+ * Never signs or executes transactions server-side; the user's connected wallet must sign.
+ */
+app.post('/api/jupiter/swap', async (req, res) => {
+  try {
+    const { quoteResponse, userPublicKey, wrapAndUnwrapSol = true, dynamicComputeUnitLimit = true } = req.body || {};
+
+    if (!quoteResponse || !quoteResponse.outAmount || !userPublicKey) {
+      return res.status(400).json({
+        error: 'Missing valid quoteResponse or userPublicKey.',
+      });
+    }
+
+    if (quoteResponse.outputMint !== OFFICIAL_PINN_MINT) {
+      return res.status(400).json({
+        error: `Security check failed: quote outputMint does not match official $PINN mint (${OFFICIAL_PINN_MINT}).`,
+      });
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
+    if (process.env.JUPITER_API_KEY) {
+      headers['x-api-key'] = process.env.JUPITER_API_KEY;
+    }
+
+    let lastStatus = 502;
+    let lastPayload: any = null;
+
+    for (const endpoint of JUPITER_SWAP_ENDPOINTS) {
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            quoteResponse,
+            userPublicKey,
+            wrapAndUnwrapSol,
+            dynamicComputeUnitLimit,
+            prioritizationFeeLamports: 'auto',
+          }),
+        });
+        const data = await response.json().catch(() => null);
+        lastStatus = response.status;
+        lastPayload = data;
+
+        if (response.ok && data && data.swapTransaction) {
+          return res.status(200).json(data);
+        }
+      } catch (err: any) {
+        lastPayload = { error: err?.message || 'Jupiter swap build error' };
+      }
+    }
+
+    return res.status(lastStatus >= 400 && lastStatus < 600 ? lastStatus : 502).json(
+      lastPayload || {
+        error: 'Unable to build swap transaction from Jupiter API.',
+      }
+    );
+  } catch (err: any) {
+    return res.status(500).json({
+      error: err?.message || 'Internal server error while building Jupiter swap transaction.',
+    });
+  }
+});
+
+/**
+ * GET /api/solana/balance
+ * Fetches the connected wallet's native SOL balance on Solana Mainnet.
+ */
+app.get('/api/solana/balance', async (req, res) => {
+  try {
+    const wallet = String(req.query.wallet || '').trim();
+    if (!wallet || wallet.length < 32 || wallet.length > 48) {
+      return res.status(400).json({ error: 'Invalid Solana wallet address.' });
+    }
+
+    for (const endpoint of SOLANA_RPC_ENDPOINTS) {
+      try {
+        const rpcRes = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: `bal-${Date.now()}`,
+            method: 'getBalance',
+            params: [wallet, { commitment: 'confirmed' }],
+          }),
+        });
+        if (rpcRes.ok) {
+          const json = await rpcRes.json();
+          if (typeof json?.result?.value === 'number') {
+            return res.status(200).json({
+              lamports: json.result.value,
+              sol: json.result.value / 1e9,
+            });
+          }
+        }
+      } catch {
+        // try next endpoint
+      }
+    }
+
+    return res.status(502).json({ error: 'Unable to fetch SOL balance from Mainnet RPC.' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Failed to fetch SOL balance.' });
+  }
+});
+
+/**
+ * POST /api/solana/broadcast
+ * Broadcasts a user-signed base64 transaction to Solana Mainnet RPC.
+ */
+app.post('/api/solana/broadcast', async (req, res) => {
+  try {
+    const { signedTransactionBase64 } = req.body || {};
+    if (!signedTransactionBase64 || typeof signedTransactionBase64 !== 'string') {
+      return res.status(400).json({ error: 'Missing signedTransactionBase64 payload.' });
+    }
+
+    let lastError = 'Unable to broadcast transaction to Solana Mainnet RPC.';
+    for (const endpoint of SOLANA_RPC_ENDPOINTS) {
+      try {
+        const rpcRes = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: `send-${Date.now()}`,
+            method: 'sendTransaction',
+            params: [
+              signedTransactionBase64,
+              {
+                encoding: 'base64',
+                skipPreflight: false,
+                preflightCommitment: 'confirmed',
+                maxRetries: 3,
+              },
+            ],
+          }),
+        });
+
+        const json = await rpcRes.json().catch(() => null);
+        if (json?.result && typeof json.result === 'string') {
+          return res.status(200).json({ signature: json.result });
+        }
+        if (json?.error?.message) {
+          lastError = json.error.message;
+        }
+      } catch (err: any) {
+        lastError = err?.message || lastError;
+      }
+    }
+
+    return res.status(400).json({ error: lastError });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Broadcast failed.' });
+  }
+});
+
 /**
  * Health check & status endpoint
  */

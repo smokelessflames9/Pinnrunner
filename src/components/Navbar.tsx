@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, X, Wallet, Send, ShieldCheck, Volume2, VolumeX, User, LogOut, Lock, Loader2, Coins } from 'lucide-react';
+import { Menu, X, Wallet, Send, ShieldCheck, Volume2, VolumeX, User, LogOut, Lock, Loader2, Coins, ArrowLeftRight } from 'lucide-react';
 import { PageNav, WalletState, PlayerProfile } from '../types';
 import { PINN_CONFIG } from '../config/pinnConfig';
 import { soundService } from '../services/soundService';
@@ -12,6 +12,7 @@ interface NavbarProps {
   walletState: WalletState;
   onOpenWalletModal: () => void;
   onOpenAuthModal?: () => void;
+  onOpenSwapModal?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -20,6 +21,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   walletState,
   onOpenWalletModal,
   onOpenAuthModal,
+  onOpenSwapModal,
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isMuted, setIsMuted] = useState<boolean>(soundService.getIsMuted());
@@ -225,6 +227,19 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span>Admin</span>
           </button>
 
+          {/* SWAP NOW BUTTON */}
+          {onOpenSwapModal && (
+            <button
+              type="button"
+              onClick={onOpenSwapModal}
+              data-action="swap-pinn"
+              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl font-extrabold text-xs uppercase tracking-wider bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-400/50 hover:border-amber-300 transition-all cursor-pointer shadow-sm"
+            >
+              <ArrowLeftRight className="w-3.5 h-3.5 text-amber-400" />
+              <span>SWAP NOW</span>
+            </button>
+          )}
+
           {/* CONNECT WALLET BUTTON */}
           <button
             onClick={onOpenWalletModal}
@@ -248,6 +263,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* MOBILE ACTIONS */}
         <div className="flex items-center gap-2 lg:hidden">
+          {onOpenSwapModal && (
+            <button
+              type="button"
+              onClick={onOpenSwapModal}
+              data-action="swap-pinn"
+              className="flex items-center gap-1 px-2.5 py-2 rounded-lg text-xs font-extrabold uppercase bg-amber-500/15 text-amber-300 border border-amber-400/50"
+            >
+              <ArrowLeftRight className="w-3.5 h-3.5 text-amber-400" />
+              <span>SWAP NOW</span>
+            </button>
+          )}
           {/* Mobile Sound Toggle */}
           <button
             onClick={() => soundService.toggleMute()}
@@ -351,6 +377,21 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           <div className="pt-4 border-t border-zinc-800 flex flex-col gap-3">
+            {onOpenSwapModal && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  onOpenSwapModal();
+                }}
+                data-action="swap-pinn"
+                className="w-full py-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-400/50 font-extrabold text-sm uppercase tracking-wider text-center flex items-center justify-center gap-2"
+              >
+                <ArrowLeftRight className="w-4 h-4 text-amber-400" />
+                <span>SWAP NOW ($PINN)</span>
+              </button>
+            )}
+
             <button
               onClick={() => {
                 setIsMobileMenuOpen(false);

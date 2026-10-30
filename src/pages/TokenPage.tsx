@@ -9,15 +9,17 @@ import {
   Send,
   Lock,
   ArrowRight,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { PageNav } from '../types';
 import { PINN_CONFIG } from '../config/pinnConfig';
 
 interface TokenPageProps {
   onNavigate: (page: PageNav) => void;
+  onOpenSwapModal?: () => void;
 }
 
-export const TokenPage: React.FC<TokenPageProps> = ({ onNavigate }) => {
+export const TokenPage: React.FC<TokenPageProps> = ({ onNavigate, onOpenSwapModal }) => {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -81,9 +83,21 @@ export const TokenPage: React.FC<TokenPageProps> = ({ onNavigate }) => {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 pt-2">
+            {onOpenSwapModal && (
+              <button
+                type="button"
+                onClick={onOpenSwapModal}
+                data-action="swap-pinn"
+                className="px-6 py-2.5 rounded-xl bg-gold-gradient text-black font-extrabold text-xs uppercase tracking-wider hover:opacity-95 shadow-md flex items-center gap-2 cursor-pointer"
+              >
+                <ArrowLeftRight className="w-4 h-4" />
+                <span>SWAP NOW</span>
+              </button>
+            )}
+
             <button
               onClick={handleCopy}
-              className="px-6 py-2.5 rounded-xl bg-gold-gradient text-black font-extrabold text-xs uppercase tracking-wider hover:opacity-95 shadow-md flex items-center gap-2 cursor-pointer"
+              className="px-6 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-amber-500/40 font-extrabold text-xs uppercase tracking-wider flex items-center gap-2 cursor-pointer"
             >
               {copied ? <Check className="w-4 h-4 stroke-[3]" /> : <Copy className="w-4 h-4" />}
               <span>{copied ? 'MINT COPIED TO CLIPBOARD!' : 'COPY TOKEN ADDRESS'}</span>
